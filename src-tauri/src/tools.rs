@@ -127,10 +127,14 @@ pub fn run_with_options(workspace: &Path, call: &ToolCall, options: ToolOptions)
 
 fn run_result(workspace: &Path, call: &ToolCall, options: ToolOptions) -> ToolRunResult {
     let result = match call.name.as_str() {
-        "fs.list" => fs_list(
-            workspace,
-            arg_string(&call.args, "path").unwrap_or_else(|| ".".into()),
-        ),
+        "fs.list" => {
+            let path = arg_string(&call.args, "path").unwrap_or_else(|| ".".into());
+            if options.rtk_enabled && rtk_available() {
+                rtk_list(workspace, &path).or_else(|_| fs_list(workspace, path))
+            } else {
+                fs_list(workspace, path)
+            }
+        }
         "fs.read" => match arg_string(&call.args, "path") {
             Some(path) => {
                 if options.rtk_enabled && rtk_available() {
@@ -423,6 +427,20 @@ fn git_output(workspace: &Path, args: &[&str], max_bytes: usize) -> Result<Strin
     ))
 }
 
+fn rtk_list(workspace: &Path, relative: &str) -> Result<String, String> {
+    let path = resolve_existing(workspace, relative)?;
+    if !path.is_dir() {
+        return Err("path is not a directory".into());
+    }
+    let mut command = Command::new("rtk");
+    command
+        .current_dir(workspace)
+        .arg("ls")
+        .arg("--ultra-compact")
+        .arg(path);
+    rtk_output("rtk-ls", &mut command, MAX_TOOL_OUTPUT_BYTES)
+}
+
 fn rtk_read(workspace: &Path, relative: &str) -> Result<String, String> {
     let path = resolve_existing(workspace, relative)?;
     if !path.is_file() {
@@ -432,6 +450,7 @@ fn rtk_read(workspace: &Path, relative: &str) -> Result<String, String> {
     command
         .current_dir(workspace)
         .arg("read")
+        .arg("--ultra-compact")
         .arg("--level")
         .arg("minimal")
         .arg("--max-lines")
@@ -455,6 +474,7 @@ fn rtk_grep(workspace: &Path, args: &Value) -> Result<String, String> {
     command
         .current_dir(workspace)
         .arg("grep")
+        .arg("--ultra-compact")
         .arg("--max")
         .arg(max_results.to_string())
         .arg(&query)
@@ -472,6 +492,7 @@ fn rtk_git_status(workspace: &Path) -> Result<String, String> {
     command
         .current_dir(workspace)
         .arg("git")
+        .arg("--ultra-compact")
         .arg("status")
         .arg("--porcelain=v1")
         .arg("--branch");
@@ -480,7 +501,11 @@ fn rtk_git_status(workspace: &Path) -> Result<String, String> {
 
 fn rtk_git_diff(workspace: &Path, args: &Value) -> Result<String, String> {
     let mut command = Command::new("rtk");
-    command.current_dir(workspace).arg("git").arg("diff");
+    command
+        .current_dir(workspace)
+        .arg("git")
+        .arg("--ultra-compact")
+        .arg("diff");
     if let Some(relative) = arg_string(args, "path") {
         clean_relative(&relative)?;
         command.arg("--").arg(relative);
