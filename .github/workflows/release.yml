@@ -16,13 +16,17 @@ jobs:
       matrix:
         include:
           - platform: ubuntu-22.04
+            target: ''
             args: --bundles deb,rpm,appimage
           - platform: windows-latest
+            target: ''
             args: --bundles nsis,msi
           - platform: macos-13
-            args: --bundles dmg,app
-          - platform: macos-latest
-            args: --bundles dmg,app
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin --bundles dmg,app
+          - platform: macos-14
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles dmg,app
 
     runs-on: ${{ matrix.platform }}
 
@@ -38,6 +42,10 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust target
+        if: matrix.target != ''
+        run: rustup target add ${{ matrix.target }}
 
       - name: Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -60,7 +68,24 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Sandevistan ${{ github.ref_name }}
-          releaseBody: Cross-platform installers for Sandevistan.
+          releaseBody: |
+            ## Sandevistan ${{ github.ref_name }}
+
+            ### Installers
+            - Linux: AppImage, DEB, RPM
+            - Windows: NSIS, MSI
+            - macOS Intel: DMG, app bundle
+            - macOS Apple Silicon: DMG, app bundle
+            - Linux helper: install-linux-appimage.sh
+
+            ### Changes
+            - Added Linux AppImage install script that registers a desktop launcher.
+            - Added explicit macOS Apple Silicon release build.
+            - Added development branch workflow with PRs into main.
+            - Removed committed VS Code settings.
+            - Ignored local env and .sandevistan config/secrets.
+            - Set ASCII header font size to 4px.
+            - Expanded RTK integration for read-only tools when enabled.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
