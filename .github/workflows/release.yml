@@ -76,7 +76,7 @@ jobs:
             - Windows: NSIS, MSI
             - macOS Intel: DMG, app bundle
             - macOS Apple Silicon: DMG, app bundle
-            - Linux helper: install-linux-appimage.sh
+            - Linux helpers: install-linux-appimage.sh, install-arch-pkgbuild.sh
 
             ### Changes
             - Added Linux AppImage install script that registers a desktop launcher.
@@ -86,6 +86,7 @@ jobs:
             - Ignored local env and .sandevistan config/secrets.
             - Set ASCII header font size to 4px.
             - Expanded RTK integration for read-only tools when enabled.
+            - Added Arch PKGBUILD native package install path.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
@@ -97,7 +98,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Upload Linux AppImage installer script
+      - name: Upload Linux installer scripts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" scripts/install-linux-appimage.sh --clobber
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" scripts/install-linux-appimage.sh --clobber
+          gh release upload "${GITHUB_REF_NAME}" scripts/install-arch-pkgbuild.sh --clobber
+          gh release upload "${GITHUB_REF_NAME}" packaging/arch/PKGBUILD --clobber
