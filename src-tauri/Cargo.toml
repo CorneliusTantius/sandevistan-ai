@@ -1,6 +1,6 @@
 [package]
 name = "sandevistan"
-version = "1.2.0"
+version = "1.2.1"
 description = "Minimal coding agent harness"
 authors = ["you"]
 edition = "2021"
