@@ -21,7 +21,7 @@ has makepkg || die "install base-devel first"
 printf '%s\n' "installing build/runtime deps"
 sudo pacman -S --needed --noconfirm \
   base-devel git nodejs npm \
-  webkit2gtk-4.1 libayatana-appindicator gtk3 librsvg
+  webkit2gtk-4.1 libayatana-appindicator gtk3 librsvg openssl pkgconf
 
 if ! has cargo || ! has rustc; then
   if has rustup; then

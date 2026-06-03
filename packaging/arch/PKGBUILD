@@ -6,8 +6,8 @@ pkgdesc="Minimal coding agent harness"
 arch=(x86_64)
 url="https://github.com/CorneliusTantius/sandevistan-ai"
 license=(MIT)
-depends=(webkit2gtk-4.1 libayatana-appindicator gtk3 librsvg)
-makedepends=(git nodejs npm)
+depends=(webkit2gtk-4.1 libayatana-appindicator gtk3 librsvg openssl)
+makedepends=(git nodejs npm pkgconf)
 provides=(sandevistan)
 conflicts=(sandevistan)
 source=("git+${url}.git#branch=main")
