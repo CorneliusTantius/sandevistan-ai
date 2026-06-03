@@ -6,9 +6,21 @@ fn main() {
     {
         // WebKitGTK can crash on some Wayland/NVIDIA/Mesa setups with:
         // "Could not create default EGL display: EGL_BAD_PARAMETER".
-        // Keep user override possible by only setting when unset.
+        // Keep user overrides possible by only setting when unset.
         if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+        if std::env::var_os("GDK_BACKEND").is_none() {
+            std::env::set_var("GDK_BACKEND", "x11");
+        }
+        if std::env::var_os("LIBGL_ALWAYS_SOFTWARE").is_none() {
+            std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+        }
+        if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        }
+        if std::env::var_os("GSK_RENDERER").is_none() {
+            std::env::set_var("GSK_RENDERER", "cairo");
         }
     }
 

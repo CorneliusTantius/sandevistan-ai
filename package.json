@@ -1,14 +1,14 @@
 {
   "name": "sandevistan",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:build": "tauri build --bundles deb,rpm,appimage",
+    "tauri:build": "tauri build --bundles deb,rpm",
     "tauri:build:all": "tauri build --bundles all"
   },
   "dependencies": {

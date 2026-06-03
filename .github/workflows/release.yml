@@ -10,26 +10,31 @@ permissions:
   contents: write
 
 jobs:
-  publish-tauri:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: ubuntu-22.04
-            target: ''
-            args: --bundles deb,rpm,appimage
-          - platform: windows-latest
-            target: ''
-            args: --bundles nsis,msi
-          - platform: macos-13
-            target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin --bundles dmg,app
-          - platform: macos-14
-            target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin --bundles dmg,app
+  create-release:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    runs-on: ${{ matrix.platform }}
+      - name: Read version
+        id: version
+        shell: bash
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
 
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Release ${GITHUB_REF_NAME}"
+
+  build-linux:
+    needs: create-release
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,61 +48,123 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Add Rust target
-        if: matrix.target != ''
-        run: rustup target add ${{ matrix.target }}
-
       - name: Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf \
+            libssl-dev \
+            pkg-config \
             rpm
 
-      - name: Install frontend dependencies
-        run: npm ci
+      - name: Build Linux packages
+        run: |
+          npm ci
+          npm run tauri -- build --bundles deb,rpm
 
-      - name: Build and upload release assets
-        uses: tauri-apps/tauri-action@v0
+      - name: Prepare Linux release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.create-release.outputs.version }}"
+          mkdir -p release-assets linux-tar/sandevistan/bin linux-tar/sandevistan/share/applications linux-tar/sandevistan/share/icons/hicolor/128x128/apps
+
+          cp src-tauri/target/release/bundle/deb/*.deb "release-assets/sandevistan-${VERSION}-x86.deb"
+          cp src-tauri/target/release/bundle/rpm/*.rpm "release-assets/sandevistan-${VERSION}-x86.rpm"
+
+          cp src-tauri/target/release/sandevistan linux-tar/sandevistan/bin/sandevistan-bin
+          cp packaging/linux/sandevistan linux-tar/sandevistan/bin/sandevistan
+          cp packaging/linux/install.sh linux-tar/sandevistan/install.sh
+          cp packaging/linux/uninstall.sh linux-tar/sandevistan/uninstall.sh
+          cp packaging/linux/README.md linux-tar/sandevistan/README.md
+          cp packaging/linux/sandevistan.desktop linux-tar/sandevistan/share/applications/sandevistan.desktop
+          cp src-tauri/icons/128x128.png linux-tar/sandevistan/share/icons/hicolor/128x128/apps/sandevistan.png
+          chmod +x linux-tar/sandevistan/bin/sandevistan linux-tar/sandevistan/bin/sandevistan-bin linux-tar/sandevistan/install.sh linux-tar/sandevistan/uninstall.sh
+          tar -C linux-tar -czf "release-assets/sandevistan-${VERSION}.tar.gz" sandevistan
+
+      - name: Upload Linux assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Sandevistan ${{ github.ref_name }}
-          releaseBody: |
-            ## Sandevistan ${{ github.ref_name }}
+        shell: bash
+        run: gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
 
-            ### Installers
-            - Linux: AppImage, DEB, RPM
-            - Windows: NSIS, MSI
-            - macOS Intel: DMG, app bundle
-            - macOS Apple Silicon: DMG, app bundle
-            - Linux helper: install-linux-appimage.sh
-
-            ### Changes
-            - Added Linux AppImage install script that registers a desktop launcher.
-            - Added explicit macOS Apple Silicon release build.
-            - Added development branch workflow with PRs into main.
-            - Removed committed VS Code settings.
-            - Ignored local env and .sandevistan config/secrets.
-            - Set ASCII header font size to 4px.
-            - Expanded RTK integration for read-only tools when enabled.
-          releaseDraft: false
-          prerelease: false
-          args: ${{ matrix.args }}
-
-  upload-linux-installer-script:
-    needs: publish-tauri
-    runs-on: ubuntu-22.04
+  build-windows:
+    needs: create-release
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Upload Linux AppImage installer script
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Windows packages
+        shell: bash
+        run: |
+          npm ci
+          npm run tauri -- build --bundles nsis,msi
+
+      - name: Upload Windows assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" scripts/install-linux-appimage.sh --clobber
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.create-release.outputs.version }}"
+          mkdir -p release-assets
+          cp src-tauri/target/release/bundle/nsis/*.exe "release-assets/sandevistan-${VERSION}-win.exe"
+          cp src-tauri/target/release/bundle/msi/*.msi "release-assets/sandevistan-${VERSION}-win.msi"
+          gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
+
+  build-macos:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            suffix: mac-intel
+          - platform: macos-14
+            target: aarch64-apple-darwin
+            suffix: mac-arm
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build macOS package
+        shell: bash
+        run: |
+          npm ci
+          npm run tauri -- build --target ${{ matrix.target }} --bundles dmg
+
+      - name: Upload macOS asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.create-release.outputs.version }}"
+          mkdir -p release-assets
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg "release-assets/sandevistan-${VERSION}-${{ matrix.suffix }}.dmg"
+          gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
