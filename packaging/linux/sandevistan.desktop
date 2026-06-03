@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sandevistan
+Comment=Minimal coding agent harness
+Exec=@PREFIX@/bin/sandevistan
+Icon=sandevistan
+Terminal=false
+Categories=Development;Utility;
+StartupWMClass=sandevistan
