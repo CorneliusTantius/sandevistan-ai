@@ -20,8 +20,21 @@ has makepkg || die "install base-devel first"
 
 printf '%s\n' "installing build/runtime deps"
 sudo pacman -S --needed --noconfirm \
-  base-devel git nodejs npm rust \
+  base-devel git nodejs npm \
   webkit2gtk-4.1 libayatana-appindicator gtk3 librsvg
+
+if ! has cargo || ! has rustc; then
+  if has rustup; then
+    printf '%s\n' "rustup found; installing/selecting stable toolchain"
+    rustup default stable
+  else
+    printf '%s\n' "installing rust toolchain"
+    sudo pacman -S --needed --noconfirm rust
+  fi
+fi
+
+has cargo || die "cargo not found after rust setup"
+has rustc || die "rustc not found after rust setup"
 
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
@@ -34,7 +47,7 @@ if [ "$BRANCH" != "main" ]; then
   sed -i "s/#branch=main/#branch=${BRANCH}/" PKGBUILD
 fi
 
-makepkg -si --noconfirm
+makepkg -i --noconfirm
 
 printf '%s\n' "installed native package: sandevistan"
 printf '%s\n' "run: sandevistan"
