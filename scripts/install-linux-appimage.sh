@@ -46,6 +46,8 @@ install -m 755 "$tmp" "$APPIMAGE_PATH"
 cat > "$BIN_PATH" <<EOF
 #!/usr/bin/env sh
 export WEBKIT_DISABLE_DMABUF_RENDERER="\${WEBKIT_DISABLE_DMABUF_RENDERER:-1}"
+export GDK_BACKEND="\${GDK_BACKEND:-x11}"
+export LIBGL_ALWAYS_SOFTWARE="\${LIBGL_ALWAYS_SOFTWARE:-1}"
 exec "${APPIMAGE_PATH}" "\$@"
 EOF
 chmod 755 "$BIN_PATH"
@@ -59,7 +61,7 @@ cat > "$DESKTOP_PATH" <<EOF
 Type=Application
 Name=${DISPLAY_NAME}
 Comment=Minimal coding agent harness
-Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 ${BIN_PATH}
+Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 ${BIN_PATH}
 Icon=${APP_NAME}
 Terminal=false
 Categories=Development;Utility;
