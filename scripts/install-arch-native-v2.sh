@@ -58,6 +58,7 @@ build() {
   cd "\${srcdir}/sandevistan-ai"
   command -v cargo >/dev/null || { echo "cargo missing; install rust or rustup default stable" >&2; return 1; }
   command -v rustc >/dev/null || { echo "rustc missing; install rust or rustup default stable" >&2; return 1; }
+  unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
   npm ci
   npm run build
   cargo build --manifest-path src-tauri/Cargo.toml --release
