@@ -2,5 +2,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    {
+        // WebKitGTK can crash on some Wayland/NVIDIA/Mesa setups with:
+        // "Could not create default EGL display: EGL_BAD_PARAMETER".
+        // Keep user override possible by only setting when unset.
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+
     sandevistan_lib::run()
 }
