@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:build": "tauri build --bundles deb,rpm,appimage",
+    "tauri:build": "tauri build --bundles deb,rpm",
     "tauri:build:all": "tauri build --bundles all"
   },
   "dependencies": {
