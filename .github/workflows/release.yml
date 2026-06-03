@@ -76,7 +76,7 @@ jobs:
             - Windows: NSIS, MSI
             - macOS Intel: DMG, app bundle
             - macOS Apple Silicon: DMG, app bundle
-            - Linux helpers: install-linux-appimage.sh, install-arch-pkgbuild.sh
+            - Linux helpers: install-linux-appimage.sh, install-arch-native.sh, install-arch-pkgbuild.sh
 
             ### Changes
             - Added Linux AppImage install script that registers a desktop launcher.
@@ -103,5 +103,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${GITHUB_REF_NAME}" scripts/install-linux-appimage.sh --clobber
+          gh release upload "${GITHUB_REF_NAME}" scripts/install-arch-native.sh --clobber
           gh release upload "${GITHUB_REF_NAME}" scripts/install-arch-pkgbuild.sh --clobber
           gh release upload "${GITHUB_REF_NAME}" packaging/arch/PKGBUILD --clobber
