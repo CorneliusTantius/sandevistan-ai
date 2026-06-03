@@ -14,8 +14,9 @@
     "windows": [
       {
         "title": "sandevistan",
-        "width": 800,
-        "height": 600,
+        "width": 1280,
+        "height": 800,
+        "maximized": true,
         "theme": "Dark",
         "decorations": true
       }
