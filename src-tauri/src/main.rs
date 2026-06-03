@@ -16,6 +16,12 @@ fn main() {
         if std::env::var_os("LIBGL_ALWAYS_SOFTWARE").is_none() {
             std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
         }
+        if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        }
+        if std::env::var_os("GSK_RENDERER").is_none() {
+            std::env::set_var("GSK_RENDERER", "cairo");
+        }
     }
 
     sandevistan_lib::run()
