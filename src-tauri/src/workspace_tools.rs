@@ -7,10 +7,10 @@ use std::{
     time::Duration,
 };
 
-const MAX_SEARCH_RESULTS: usize = 100;
+const MAX_SEARCH_RESULTS: usize = 200;
 const MAX_DIFF_BYTES: usize = 200_000;
-const SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
-const GIT_TIMEOUT: Duration = Duration::from_secs(15);
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(60);
+const GIT_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Debug, Deserialize)]
 pub struct ContentSearchRequest {
@@ -61,7 +61,7 @@ pub fn content_search(
     };
     let max_results = request
         .max_results
-        .unwrap_or(50)
+        .unwrap_or(200)
         .clamp(1, MAX_SEARCH_RESULTS);
 
     let mut command = Command::new("rg");
@@ -161,25 +161,88 @@ pub fn git_diff(chat: &ChatRuntime, request: GitDiffRequest) -> Result<String, S
     let workspace = chat.workspace()?;
     ensure_git_repo(&workspace)?;
 
-    let output = if let Some(path) = request.path {
+    let mut diff = if let Some(path) = request.path {
         clean_relative(&path)?;
         let mut command = Command::new("git");
         command.current_dir(&workspace).args(["diff", "--", &path]);
-        command_utils::output_with_timeout("git", &mut command, GIT_TIMEOUT)
+        let output = command_utils::output_with_timeout("git", &mut command, GIT_TIMEOUT)?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        }
+        let diff = String::from_utf8_lossy(&output.stdout).to_string();
+        if diff.trim().is_empty() {
+            untracked_diff(&workspace, Some(&path))?
+        } else {
+            diff
+        }
     } else {
         let mut command = Command::new("git");
         command.current_dir(&workspace).arg("diff");
-        command_utils::output_with_timeout("git", &mut command, GIT_TIMEOUT)
-    }?;
+        let output = command_utils::output_with_timeout("git", &mut command, GIT_TIMEOUT)?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        }
+        let mut diff = String::from_utf8_lossy(&output.stdout).to_string();
+        let untracked = untracked_diff(&workspace, None)?;
+        if !untracked.trim().is_empty() {
+            if !diff.trim().is_empty() {
+                diff.push_str("\n");
+            }
+            diff.push_str(&untracked);
+        }
+        diff
+    };
 
+    diff = truncate(diff, MAX_DIFF_BYTES);
+    if diff.trim().is_empty() {
+        Ok("no diff".into())
+    } else {
+        Ok(diff)
+    }
+}
+
+fn untracked_diff(workspace: &Path, relative: Option<&str>) -> Result<String, String> {
+    let mut command = Command::new("git");
+    command
+        .current_dir(workspace)
+        .args(["ls-files", "--others", "--exclude-standard", "--"]);
+    if let Some(path) = relative {
+        command.arg(path);
+    }
+    let output = command_utils::output_with_timeout("git", &mut command, GIT_TIMEOUT)?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
 
-    Ok(truncate(
-        String::from_utf8_lossy(&output.stdout).to_string(),
-        MAX_DIFF_BYTES,
-    ))
+    let mut diff = String::new();
+    for path in String::from_utf8_lossy(&output.stdout).lines() {
+        let clean = clean_relative(path)?;
+        let full_path = resolve_existing(workspace, path)?;
+        if !full_path.is_file() {
+            continue;
+        }
+        let content = match std::fs::read_to_string(&full_path) {
+            Ok(content) => content,
+            Err(_) => {
+                diff.push_str(&format!("diff --git a/{path} b/{path}\nnew file mode 100644\nBinary file {path} differs\n"));
+                continue;
+            }
+        };
+        diff.push_str(&format!(
+            "diff --git a/{0} b/{0}\nnew file mode 100644\n--- /dev/null\n+++ b/{0}\n@@ -0,0 +1,{1} @@\n",
+            clean.display(),
+            content.lines().count()
+        ));
+        for line in content.lines() {
+            diff.push('+');
+            diff.push_str(line);
+            diff.push('\n');
+        }
+        if diff.len() >= MAX_DIFF_BYTES {
+            break;
+        }
+    }
+    Ok(diff)
 }
 
 fn ensure_git_repo(workspace: &Path) -> Result<(), String> {

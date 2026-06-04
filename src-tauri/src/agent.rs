@@ -1,6 +1,6 @@
 use crate::{
     ai::{self, ChatMessage},
-    context, subagent, tools,
+    context,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -13,9 +13,7 @@ use std::{
 use tauri::{AppHandle, Emitter};
 
 const CONFIG_DIR_NAME: &str = ".sandevistan";
-const MAX_REPEAT_TOOL_CALLS: usize = 3;
-const TOOL_EXECUTION_TIMEOUT: Duration = Duration::from_secs(25);
-const SUMMARY_TIMEOUT: Duration = Duration::from_secs(10);
+const SUMMARY_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Deserialize)]
 pub struct WorkspaceRequest {
@@ -121,10 +119,15 @@ struct AppConfig {
     rtk_enabled: Option<bool>,
 }
 
+struct RunningTask {
+    handle: tauri::async_runtime::JoinHandle<()>,
+    cancellation_token: crate::runtime::CancellationToken,
+}
+
 #[derive(Clone)]
 pub struct ChatRuntime {
     state: Arc<Mutex<RuntimeState>>,
-    tasks: Arc<Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>>,
+    tasks: Arc<Mutex<HashMap<String, RunningTask>>>,
 }
 
 impl Default for ChatRuntime {
@@ -173,7 +176,7 @@ impl ChatRuntime {
     pub fn delete_workspace(&self, request: WorkspaceRequest) -> Result<SessionInfo, String> {
         let workspace = normalize_workspace(request.path)?;
         if workspace == default_workspace() {
-            return Err("home workspace cannot be deleted".into());
+            return Err("default workspace cannot be deleted".into());
         }
         remove_workspace(&workspace)?;
         let _ = fs::remove_dir_all(workspace_sessions_dir(&workspace));
@@ -232,9 +235,17 @@ impl ChatRuntime {
 
     pub fn delete_session(&self, request: SessionRequest) -> Result<SessionInfo, String> {
         let state = self.snapshot()?;
+        if let Ok(mut tasks) = self.tasks.lock() {
+            if let Some(task) = tasks.remove(&request.id) {
+                task.cancellation_token.cancel();
+                task.handle.abort();
+            }
+        }
+
         let mut index = ensure_index(&state.workspace);
         index.sessions.retain(|session| session.id != request.id);
         let _ = fs::remove_file(session_file_path(&state.workspace, &request.id));
+        let _ = fs::remove_file(session_summary_path(&state.workspace, &request.id));
 
         if index.sessions.is_empty() {
             let session = create_session(&state.workspace);
@@ -344,18 +355,21 @@ impl ChatRuntime {
         let tasks = self.tasks.clone();
         let mods = ai::active_mods();
         let prompt_config = ai::prompt_config();
+        let cancellation_token = crate::runtime::CancellationToken::new();
+        let task_cancellation_token = cancellation_token.clone();
         let handle = tauri::async_runtime::spawn(async move {
-            let result = run_agent_loop(
+            let result = run_native_agent_loop(
                 &app,
                 &workspace,
                 &task_session_id,
                 messages,
                 mods,
                 prompt_config,
+                task_cancellation_token,
             )
             .await;
             if let Err(error) = &result {
-                emit_stream_error(&app, &task_session_id, error);
+                emit_stream_error(&app, &task_session_id, &error.message);
             }
             finish_task(&workspace, &task_session_id, result).await.ok();
             emit_stream_done(&app, &task_session_id);
@@ -366,7 +380,13 @@ impl ChatRuntime {
         self.tasks
             .lock()
             .map_err(|_| "task lock poisoned".to_string())?
-            .insert(session_id.clone(), handle);
+            .insert(
+                session_id.clone(),
+                RunningTask {
+                    handle,
+                    cancellation_token,
+                },
+            );
 
         Ok(TaskInfo {
             id: task_id,
@@ -376,14 +396,18 @@ impl ChatRuntime {
 
     pub fn cancel_active(&self) -> Result<SessionInfo, String> {
         let state = self.snapshot()?;
-        let handle = self
+        let task = self
             .tasks
             .lock()
             .map_err(|_| "task lock poisoned".to_string())?
             .remove(&state.active_session_id);
 
-        if let Some(handle) = handle {
-            handle.abort();
+        if let Some(task) = task {
+            task.cancellation_token.cancel();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                task.handle.abort();
+            });
             cancel_session(&state.workspace, &state.active_session_id)?;
         }
 
@@ -428,25 +452,15 @@ fn cancel_session(workspace: &PathBuf, session_id: &str) -> Result<(), String> {
     save_index(workspace, &index)
 }
 
-async fn run_agent_loop(
+async fn run_native_agent_loop(
     app: &AppHandle,
     workspace: &PathBuf,
     session_id: &str,
-    mut messages: Vec<ChatMessage>,
+    messages: Vec<ChatMessage>,
     mods: ai::ModelMods,
     prompt_config: context::PromptConfig,
-) -> Result<Vec<ChatMessage>, String> {
-    let mods_prompt = ai::mods_prompt();
-    let base_prompt = tools::prompt_with_subagents(
-        mods.subagents_enabled && !mods.subagents.is_empty(),
-        &mods.subagents,
-        mods.shell_enabled,
-    );
-    let system_prompt = if mods_prompt.is_empty() {
-        base_prompt
-    } else {
-        format!("{}\n\n{}", base_prompt, mods_prompt)
-    };
+    cancellation_token: crate::runtime::CancellationToken,
+) -> Result<Vec<ChatMessage>, AgentLoopError> {
     let summary = tokio::time::timeout(
         SUMMARY_TIMEOUT,
         update_session_summary(workspace, session_id, &messages),
@@ -456,371 +470,75 @@ async fn run_agent_loop(
     .and_then(Result::ok)
     .unwrap_or_else(|| load_session_summary(workspace, session_id).unwrap_or_default())
     .summary;
-    if should_ping_subagents(&messages, &mods) {
-        let calls = vec![tools::ToolCall {
-            name: "agent.delegate".into(),
-            args: serde_json::json!({
-                "tasks": mods.subagents.iter().map(|agent| serde_json::json!({
-                    "agent": agent,
-                    "task": "Ping back with your subagent name and one concise status line. Do not use tools unless needed."
-                })).collect::<Vec<_>>()
-            }),
-        }];
-        let tool_contents = run_tool_calls(workspace, calls, mods.clone()).await;
-        for tool_content in tool_contents {
-            emit_stream_tool(app, session_id, &tool_content);
-            messages.push(ChatMessage {
-                role: "tool".into(),
-                content: tool_content,
-            });
-        }
-    }
 
-    let mut tool_call_counts: HashMap<String, usize> = HashMap::new();
-    loop {
-        let prompt =
-            context::build_prompt(&system_prompt, Some(&summary), &messages, &prompt_config);
+    let stream_started = Arc::new(Mutex::new(false));
+    let event_app = app.clone();
+    let event_session_id = session_id.to_string();
+    let event_stream_started = stream_started.clone();
+    let on_event = Arc::new(move |event: crate::runtime::AgentEvent| {
+        emit_agent_event(&event_app, &event_session_id, &event_stream_started, event);
+    });
 
-        let (tool_tx, mut tool_rx) = tokio::sync::mpsc::unbounded_channel::<tools::ToolCall>();
-        let stream_detector = Arc::new(Mutex::new(ToolCallStreamDetector::default()));
-        let streamed = Arc::new(Mutex::new(false));
-        let stream_app = app.clone();
-        let stream_session_id = session_id.to_string();
-        let stream_model = mods.main_model.clone();
-        let stream_detector_for_delta = stream_detector.clone();
-        let streamed_for_delta = streamed.clone();
-        let tool_tx_for_delta = tool_tx.clone();
-        let stream_app_for_delta = stream_app.clone();
-        let stream_session_id_for_delta = stream_session_id.clone();
-        let mut stream_task = tauri::async_runtime::spawn(async move {
-            let content = ai::complete_chat_stream_model(prompt, Some(stream_model), move |delta| {
-                let update = match stream_detector_for_delta.lock() {
-                    Ok(mut detector) => detector.push(&delta),
-                    Err(_) => return,
-                };
-                for call in update.calls {
-                    let _ = tool_tx_for_delta.send(call);
-                }
-                if update.text.is_empty() {
-                    return;
-                }
-                if let Ok(mut has_streamed) = streamed_for_delta.lock() {
-                    if !*has_streamed {
-                        emit_stream_start(&stream_app_for_delta, &stream_session_id_for_delta);
-                        *has_streamed = true;
-                    }
-                }
-                emit_stream_delta(&stream_app_for_delta, &stream_session_id_for_delta, &update.text);
-            })
-            .await?;
+    let runtime = crate::runtime::AgentRuntime::new();
+    let result = runtime
+        .run(crate::runtime::AgentRuntimeConfig {
+            workspace: workspace.clone(),
+            messages,
+            mods,
+            prompt_config,
+            summary: Some(summary),
+            system_prompt: None,
+            model: None,
+            read_only: false,
+            delegate_depth_remaining: 2,
+            budgets: crate::runtime::AgentBudgets::default(),
+            cancellation_token,
+            on_event,
+        })
+        .await
+        .map_err(|error| AgentLoopError {
+            message: error.message,
+            messages: error.messages,
+        })?;
 
-            let update = stream_detector
-                .lock()
-                .map_err(|_| "tool stream detector lock poisoned".to_string())?
-                .finish();
-            for call in update.calls {
-                let _ = tool_tx.send(call);
-            }
-            if !update.text.is_empty() {
-                if let Ok(mut has_streamed) = streamed.lock() {
-                    if !*has_streamed {
-                        emit_stream_start(&stream_app, &stream_session_id);
-                        *has_streamed = true;
-                    }
-                }
-                emit_stream_delta(&stream_app, &stream_session_id, &update.text);
-            }
+    Ok(result.messages)
+}
 
-            let detector = stream_detector
-                .lock()
-                .map_err(|_| "tool stream detector lock poisoned".to_string())?;
-            let streamed = streamed
-                .lock()
-                .map(|value| *value)
-                .map_err(|_| "stream state lock poisoned".to_string())?;
-            Ok::<_, String>(StreamResult {
-                content,
-                visible_content: detector.visible_content(),
-                saw_tool_call: detector.saw_tool_call,
-                streamed,
-            })
-        });
+#[derive(Debug)]
+struct AgentLoopError {
+    message: String,
+    messages: Vec<ChatMessage>,
+}
 
-        let mut stream_result = None;
-        loop {
-            tokio::select! {
-                maybe_call = tool_rx.recv() => {
-                    match maybe_call {
-                        Some(call) => {
-                            emit_stream_tool(app, session_id, &format!("{}\nstatus: running...", call.name));
-                            let tool_content = run_streamed_tool_call(workspace, call, mods.clone(), &mut tool_call_counts).await?;
-                            emit_stream_tool(app, session_id, &tool_content);
-                            messages.push(ChatMessage {
-                                role: "tool".into(),
-                                content: tool_content,
-                            });
-                        }
-                        None if stream_result.is_some() => break,
-                        None => {}
-                    }
-                }
-                result = &mut stream_task, if stream_result.is_none() => {
-                    let result = result
-                        .map_err(|error| format!("stream task failed: {error}"))??;
-                    stream_result = Some(result);
-                    while let Ok(call) = tool_rx.try_recv() {
-                        emit_stream_tool(app, session_id, &format!("{}\nstatus: running...", call.name));
-                        let tool_content = run_streamed_tool_call(workspace, call, mods.clone(), &mut tool_call_counts).await?;
-                        emit_stream_tool(app, session_id, &tool_content);
-                        messages.push(ChatMessage {
-                            role: "tool".into(),
-                            content: tool_content,
-                        });
-                    }
-                    break;
+fn emit_agent_event(
+    app: &AppHandle,
+    session_id: &str,
+    stream_started: &Arc<Mutex<bool>>,
+    event: crate::runtime::AgentEvent,
+) {
+    match event {
+        crate::runtime::AgentEvent::MessageDelta { text } => {
+            if let Ok(mut started) = stream_started.lock() {
+                if !*started {
+                    emit_stream_start(app, session_id);
+                    *started = true;
                 }
             }
+            emit_stream_delta(app, session_id, &text);
         }
-
-        let stream_result = stream_result.ok_or_else(|| "stream ended without result".to_string())?;
-        if stream_result.saw_tool_call {
-            continue;
+        crate::runtime::AgentEvent::ToolCallStart { name, .. } => {
+            emit_stream_tool(app, session_id, &format!("{name}\nstatus: running..."));
         }
-
-        let content = stream_result.assistant_content();
-        if !stream_result.streamed {
-            emit_stream_start(app, session_id);
-            emit_stream_delta(app, session_id, &content);
+        crate::runtime::AgentEvent::ToolCallEnd { content, .. } => {
+            emit_stream_tool(app, session_id, &content);
         }
-        messages.push(ChatMessage {
-            role: "assistant".into(),
-            content,
-        });
-        return Ok(messages);
+        crate::runtime::AgentEvent::Error { .. } => {}
+        crate::runtime::AgentEvent::AgentStart
+        | crate::runtime::AgentEvent::TurnStart { .. }
+        | crate::runtime::AgentEvent::AssistantMessage { .. }
+        | crate::runtime::AgentEvent::TurnEnd { .. }
+        | crate::runtime::AgentEvent::AgentEnd => {}
     }
-}
-
-fn should_ping_subagents(messages: &[ChatMessage], mods: &ai::ModelMods) -> bool {
-    if !mods.subagents_enabled || mods.subagents.is_empty() {
-        return false;
-    }
-    let Some(message) = messages.last() else {
-        return false;
-    };
-    if message.role != "user" {
-        return false;
-    }
-    let content = message.content.to_lowercase();
-    content.contains("ping") && content.contains("subagent")
-}
-
-#[derive(Default)]
-struct ToolCallStreamDetector {
-    pending: String,
-    visible: String,
-    saw_tool_call: bool,
-}
-
-struct ToolCallStreamUpdate {
-    text: String,
-    calls: Vec<tools::ToolCall>,
-}
-
-struct StreamResult {
-    content: String,
-    visible_content: String,
-    saw_tool_call: bool,
-    streamed: bool,
-}
-
-impl StreamResult {
-    fn assistant_content(&self) -> String {
-        let visible = self.visible_content.trim().to_string();
-        if visible.is_empty() {
-            self.content.clone()
-        } else {
-            visible
-        }
-    }
-}
-
-impl ToolCallStreamDetector {
-    fn push(&mut self, delta: &str) -> ToolCallStreamUpdate {
-        self.pending.push_str(delta);
-        self.drain(false)
-    }
-
-    fn finish(&mut self) -> ToolCallStreamUpdate {
-        self.drain(true)
-    }
-
-    fn visible_content(&self) -> String {
-        self.visible.trim().to_string()
-    }
-
-    fn drain(&mut self, final_flush: bool) -> ToolCallStreamUpdate {
-        const OPEN: &str = "<tool_call>";
-        const CLOSE: &str = "</tool_call>";
-
-        let mut text = String::new();
-        let mut calls = Vec::new();
-
-        loop {
-            let Some(start) = self.pending.find(OPEN) else {
-                let emit_len = if final_flush {
-                    self.pending.len()
-                } else {
-                    safe_plain_prefix_len(&self.pending, OPEN)
-                };
-                if emit_len > 0 {
-                    append_visible_text(&self.visible, &mut text, &self.pending[..emit_len]);
-                    self.pending.drain(..emit_len);
-                }
-                break;
-            };
-
-            if start > 0 {
-                append_visible_text(&self.visible, &mut text, &self.pending[..start]);
-                self.pending.drain(..start);
-                continue;
-            }
-
-            let body_start = OPEN.len();
-            let Some(close_start) = self.pending[body_start..].find(CLOSE) else {
-                break;
-            };
-            let close_start = body_start + close_start;
-            let block_end = close_start + CLOSE.len();
-            let json = self.pending[body_start..close_start].trim();
-            match serde_json::from_str::<tools::ToolCall>(json) {
-                Ok(call) => {
-                    self.saw_tool_call = true;
-                    calls.push(call);
-                }
-                Err(_) => append_visible_text(&self.visible, &mut text, &self.pending[..block_end]),
-            }
-            self.pending.drain(..block_end);
-        }
-
-        if !text.is_empty() {
-            self.visible.push_str(&text);
-        }
-        ToolCallStreamUpdate { text, calls }
-    }
-}
-
-fn append_visible_text(existing: &str, output: &mut String, value: &str) {
-    if existing.trim().is_empty() && output.trim().is_empty() && value.trim().is_empty() {
-        return;
-    }
-    output.push_str(value);
-}
-
-fn safe_plain_prefix_len(value: &str, marker: &str) -> usize {
-    let mut keep = 0;
-    for index in 1..=value.len().min(marker.len() - 1) {
-        if value.is_char_boundary(value.len() - index) && marker.starts_with(&value[value.len() - index..]) {
-            keep = index;
-        }
-    }
-    value.len() - keep
-}
-
-async fn run_streamed_tool_call(
-    workspace: &PathBuf,
-    call: tools::ToolCall,
-    mods: ai::ModelMods,
-    tool_call_counts: &mut HashMap<String, usize>,
-) -> Result<String, String> {
-    let signature = tool_signature(&call);
-    let count = tool_call_counts.entry(signature.clone()).or_default();
-    *count += 1;
-    if *count > MAX_REPEAT_TOOL_CALLS {
-        return Err(format!("repeated tool call loop: {signature}"));
-    }
-
-    let name = call.name.clone();
-    let output = run_tool_call(workspace.clone(), call, mods).await;
-    Ok(format!("{name}\n{output}"))
-}
-
-async fn run_tool_calls(
-    workspace: &PathBuf,
-    calls: Vec<tools::ToolCall>,
-    mods: ai::ModelMods,
-) -> Vec<String> {
-    if calls.iter().any(tools::is_mutating) {
-        let mut results = Vec::new();
-        for call in calls {
-            let name = call.name.clone();
-            let output = run_tool_call(workspace.clone(), call, mods.clone()).await;
-            results.push(format!("{name}\n{output}"));
-        }
-        return results;
-    }
-
-    let mut results = Vec::new();
-    let mut parallel = Vec::new();
-    for (index, call) in calls.into_iter().enumerate() {
-        let workspace = workspace.clone();
-        let mods = mods.clone();
-        parallel.push(tauri::async_runtime::spawn(async move {
-            let name = call.name.clone();
-            let output = run_tool_call(workspace, call, mods).await;
-            (index, format!("{name}\n{output}"))
-        }));
-    }
-
-    for handle in parallel {
-        if let Ok(result) = handle.await {
-            results.push(result);
-        }
-    }
-
-    results.sort_by_key(|(index, _)| *index);
-    results.into_iter().map(|(_, content)| content).collect()
-}
-
-async fn run_tool_call(workspace: PathBuf, call: tools::ToolCall, mods: ai::ModelMods) -> String {
-    if subagent::is_delegate(&call) {
-        return subagent::run_delegate(workspace, call.args, mods.clone(), mods.rtk_enabled).await;
-    }
-    run_tool_blocking(workspace, call, mods.rtk_enabled, mods.shell_enabled).await
-}
-
-async fn run_tool_blocking(
-    workspace: PathBuf,
-    call: tools::ToolCall,
-    rtk_enabled: bool,
-    shell_enabled: bool,
-) -> String {
-    match tokio::time::timeout(
-        TOOL_EXECUTION_TIMEOUT,
-        tauri::async_runtime::spawn_blocking(move || {
-            tools::run_with_options(
-                &workspace,
-                &call,
-                tools::ToolOptions {
-                    rtk_enabled,
-                    shell_enabled,
-                },
-            )
-        }),
-    )
-    .await
-    {
-        Ok(Ok(output)) => output,
-        Ok(Err(error)) => format!("status: failed\nerror: tool task failed: {error}"),
-        Err(_) => format!(
-            "status: failed\nerror: tool execution timed out after {}s",
-            TOOL_EXECUTION_TIMEOUT.as_secs()
-        ),
-    }
-}
-
-fn tool_signature(call: &tools::ToolCall) -> String {
-    let args = serde_json::to_string(&call.args).unwrap_or_else(|_| "{}".into());
-    format!("{} {args}", call.name)
 }
 
 fn emit_stream_start(app: &AppHandle, session_id: &str) {
@@ -898,7 +616,7 @@ fn emit_stream(app: &AppHandle, event: StreamEvent) {
 async fn finish_task(
     workspace: &PathBuf,
     session_id: &str,
-    result: Result<Vec<ChatMessage>, String>,
+    result: Result<Vec<ChatMessage>, AgentLoopError>,
 ) -> Result<(), String> {
     let mut index = ensure_index(workspace);
     let mut file = load_session_file(workspace, session_id)?;
@@ -906,10 +624,13 @@ async fn finish_task(
         Ok(messages) => {
             file.messages = messages;
         }
-        Err(error) => file.messages.push(ChatMessage {
-            role: "error".into(),
-            content: error,
-        }),
+        Err(error) => {
+            file.messages = error.messages;
+            file.messages.push(ChatMessage {
+                role: "error".into(),
+                content: error.message,
+            });
+        }
     }
 
     if let Some(meta) = index
@@ -1183,7 +904,7 @@ fn save_active_workspace(workspace: &PathBuf) -> Result<(), String> {
 
 fn workspace_sessions_dir(workspace: &PathBuf) -> PathBuf {
     config_dir()
-        .join("sessions")
+        .join("sessions-v2")
         .join(hash_workspace(workspace))
 }
 
@@ -1232,11 +953,9 @@ fn clean_path(path: String) -> Result<PathBuf, String> {
 }
 
 fn default_workspace() -> PathBuf {
-    dirs::home_dir()
-        .or_else(|| env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."))
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from("."))
+    let path = config_dir().join("empty-workspace");
+    fs::create_dir_all(&path).ok();
+    path.canonicalize().unwrap_or(path)
 }
 
 fn config_dir() -> PathBuf {

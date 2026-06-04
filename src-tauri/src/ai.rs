@@ -1,9 +1,10 @@
 use crate::{
     context,
     provider::{self, ProviderRuntime},
+    runtime_wire::{NativeMessage, NativeStreamEvent, NativeToolSpec, NativeTurnResult},
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, env, fs, path::PathBuf};
+use std::{collections::HashMap, env, fs, path::PathBuf, sync::OnceLock};
 
 const CONFIG_DIR_NAME: &str = ".sandevistan";
 const DEFAULT_API_BASE: &str = "https://api.openai.com/v1";
@@ -577,24 +578,24 @@ pub async fn complete_chat(messages: Vec<ChatMessage>) -> Result<String, String>
     provider::complete(runtime, messages).await
 }
 
-pub async fn complete_chat_model(
-    messages: Vec<ChatMessage>,
+pub async fn complete_native_stream_model<F>(
+    messages: Vec<NativeMessage>,
+    tools: Vec<NativeToolSpec>,
     model: Option<String>,
-) -> Result<String, String> {
-    let (runtime, messages) = runtime_request_for_model(messages, model)?;
-    provider::complete(runtime, messages).await
-}
-
-pub async fn complete_chat_stream_model<F>(
-    messages: Vec<ChatMessage>,
-    model: Option<String>,
-    on_delta: F,
-) -> Result<String, String>
+    cancellation_token: crate::runtime::CancellationToken,
+    on_event: F,
+) -> Result<NativeTurnResult, String>
 where
-    F: FnMut(String),
+    F: FnMut(NativeStreamEvent),
 {
-    let (runtime, messages) = runtime_request_for_model(messages, model)?;
-    provider::complete_stream(runtime, messages, on_delta).await
+    let (runtime, _) = runtime_request_for_model(
+        vec![ChatMessage {
+            role: "user".into(),
+            content: "native request".into(),
+        }],
+        model,
+    )?;
+    provider::complete_native_stream(runtime, messages, tools, cancellation_token, on_event).await
 }
 
 pub fn prompt_config() -> context::PromptConfig {
@@ -956,7 +957,7 @@ fn clean_ui_scale(value: f32) -> f32 {
 }
 
 fn clean_subagent_concurrency(value: usize) -> usize {
-    value.clamp(1, 4)
+    value.clamp(1, 8)
 }
 
 fn clean_subagents(values: Vec<String>) -> Vec<String> {
@@ -1061,7 +1062,7 @@ fn profile_options() -> Vec<ProfileOption> {
             subagents_enabled: profile.subagents_enabled.unwrap_or(true),
             subagent_model: profile.subagent_model.unwrap_or_default(),
             subagent_max_concurrency: clean_subagent_concurrency(
-                profile.subagent_max_concurrency.unwrap_or(3),
+                profile.subagent_max_concurrency.unwrap_or(8),
             ),
             subagents_config: profile.subagents_config.unwrap_or_default(),
         })
@@ -1113,12 +1114,17 @@ fn rtk_available() -> bool {
 }
 
 fn rtk_path() -> Option<PathBuf> {
-    env::var_os("PATH")
-        .into_iter()
-        .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
-        .chain(rtk_fallback_dirs())
-        .map(|path| path.join("rtk"))
-        .find(|path| path.is_file())
+    static RTK_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+    RTK_PATH
+        .get_or_init(|| {
+            env::var_os("PATH")
+                .into_iter()
+                .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
+                .chain(rtk_fallback_dirs())
+                .map(|path| path.join("rtk"))
+                .find(|path| path.is_file())
+        })
+        .clone()
 }
 
 fn rtk_fallback_dirs() -> Vec<PathBuf> {

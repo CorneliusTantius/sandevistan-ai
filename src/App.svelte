@@ -3,6 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { open } from "@tauri-apps/plugin-dialog";
   import Checkbox from "./components/Checkbox.svelte";
   import DiffPane, { type DiffTab } from "./components/DiffPane.svelte";
   import EditorPane, { type OpenFile } from "./components/EditorPane.svelte";
@@ -13,6 +14,8 @@
   import SelectBox, { type SelectOption } from "./components/SelectBox.svelte";
   import TerminalPane from "./components/TerminalPane.svelte";
   import ToolGroup from "./components/ToolGroup.svelte";
+
+  const appVersion = import.meta.env.PACKAGE_VERSION ?? "dev";
 
   type Role = "user" | "assistant" | "tool" | "error";
   type SearchHit = { path: string; line: number; column: number; text: string };
@@ -104,6 +107,9 @@
   let streamMessageOpen = false;
   let files: FileEntry[] = [];
   let fileIndex: FileEntry[] = [];
+  let fileIndexLoaded = false;
+  let fileIndexing = false;
+  let fileIndexTimer = 0;
   let expandedDirs = new Set<string>();
   let loadedDirs = new Set<string>();
   let fileTreeVersion = 0;
@@ -307,6 +313,28 @@
     flushStreamBuffer();
   }
 
+  function toolTitle(content: string) {
+    return content.split("\n", 1)[0] || "tool";
+  }
+
+  function isRunningTool(content: string) {
+    return /^status:\s*running\.\.\./m.test(content);
+  }
+
+  function upsertToolMessage(content: string) {
+    streamMessageOpen = false;
+    const title = toolTitle(content);
+    const next = [...messages];
+    const lastIndex = next.length - 1;
+    const last = next[lastIndex];
+    if (last?.role === "tool" && toolTitle(last.content) === title && isRunningTool(last.content)) {
+      next[lastIndex] = { role: "tool", content };
+      messages = next;
+      return;
+    }
+    addMessage("tool", content);
+  }
+
   function handleFileChanged(event: FileChangedEvent) {
     if (event.workspace !== workspace || !featureFileWatcher) return;
     if (fileChangeTimer) window.clearTimeout(fileChangeTimer);
@@ -327,8 +355,7 @@
       scheduleStreamFlush();
     } else if (event.kind === "tool") {
       flushStreamNow();
-      streamMessageOpen = false;
-      addMessage("tool", event.content ?? "");
+      upsertToolMessage(event.content ?? "");
     } else if (event.kind === "error") {
       flushStreamNow();
       streamMessageOpen = false;
@@ -500,7 +527,7 @@
       shell_enabled: value.shell_enabled ?? false,
       git_panel_enabled: value.git_panel_enabled ?? true,
       subagents_enabled: value.subagents_enabled ?? true,
-      subagent_max_concurrency: Math.min(4, Math.max(1, Number(value.subagent_max_concurrency) || 3)),
+      subagent_max_concurrency: Math.min(5, Math.max(1, Number(value.subagent_max_concurrency) || 3)),
     };
   }
 
@@ -637,6 +664,10 @@
     messages = session.messages;
   }
 
+  function markActiveSessionRunning(running: boolean) {
+    sessions = sessions.map((session) => session.id === activeSessionId ? { ...session, running } : session);
+  }
+
   async function loadSession() {
     const previousMutations = toolMutationCount;
     const session = await invoke<SessionInfo>("chat_session");
@@ -647,15 +678,36 @@
   }
 
   async function loadFiles() {
-    const [tree, index] = await Promise.all([
-      invoke<FileEntry[]>("workspace_tree"),
-      invoke<FileEntry[]>("workspace_index"),
-    ]);
-    files = tree;
-    fileIndex = index;
+    files = await invoke<FileEntry[]>("workspace_tree");
+    fileIndex = [];
+    fileIndexLoaded = false;
     expandedDirs = new Set();
     loadedDirs = new Set();
     fileTreeVersion += 1;
+  }
+
+  async function ensureFileIndex() {
+    if (fileIndexLoaded || fileIndexing) return;
+    fileIndexing = true;
+    try {
+      fileIndex = await invoke<FileEntry[]>("workspace_index");
+      fileIndexLoaded = true;
+    } catch (error) {
+      addMessage("error", String(error));
+      fileIndex = [];
+    } finally {
+      fileIndexing = false;
+    }
+  }
+
+  function inputFileQuery(event: Event) {
+    fileQuery = (event.currentTarget as HTMLInputElement).value;
+    if (fileIndexTimer) window.clearTimeout(fileIndexTimer);
+    if (!fileQuery.trim() || fileIndexLoaded) return;
+    fileIndexTimer = window.setTimeout(() => {
+      fileIndexTimer = 0;
+      void ensureFileIndex();
+    }, 250);
   }
 
   async function runContentSearch() {
@@ -911,6 +963,15 @@
   }
 
 
+  async function chooseWorkspaceFolder() {
+    try {
+      const selected = await open({ directory: true, multiple: false, title: "Select workspace" });
+      if (typeof selected === "string") workspaceDraft = selected;
+    } catch (error) {
+      addMessage("error", String(error));
+    }
+  }
+
   async function selectWorkspace(path: string) {
     busy = true;
     try {
@@ -977,7 +1038,7 @@
 
     try {
       await invoke("chat_send", { prompt: input });
-      await loadSession();
+      markActiveSessionRunning(true);
     } catch (error) {
       addMessage("error", String(error));
     } finally {
@@ -1082,6 +1143,7 @@
       window.clearInterval(poll);
       if (streamFrame) cancelAnimationFrame(streamFrame);
       if (fileChangeTimer) window.clearTimeout(fileChangeTimer);
+      if (fileIndexTimer) window.clearTimeout(fileIndexTimer);
       window.removeEventListener("keydown", globalKeydown);
       void invoke("file_watch_stop");
       unlistenChat?.();
@@ -1092,13 +1154,14 @@
 
 <main class="app">
   <header class="topbar" data-tauri-drag-region>
-    <div>
+    <div class="brand-mark">
       <pre class="ascii" aria-label="sandevistan">███████╗ █████╗ ███╗   ██╗██████╗ ███████╗██╗   ██╗██╗███████╗████████╗ █████╗ ███╗   ██╗         █████╗ ██╗
 ██╔════╝██╔══██╗████╗  ██║██╔══██╗██╔════╝██║   ██║██║██╔════╝╚══██╔══╝██╔══██╗████╗  ██║        ██╔══██╗██║
 ███████╗███████║██╔██╗ ██║██║  ██║█████╗  ██║   ██║██║███████╗   ██║   ███████║██╔██╗ ██║        ███████║██║
 ╚════██║██╔══██║██║╚██╗██║██║  ██║██╔══╝  ╚██╗ ██╔╝██║╚════██║   ██║   ██╔══██║██║╚██╗██║        ██╔══██║██║
 ███████║██║  ██║██║ ╚████║██████╔╝███████╗ ╚████╔╝ ██║███████║   ██║   ██║  ██║██║ ╚████║███████╗██║  ██║██║
 ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝  ╚═══╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝╚═╝</pre>
+      <span class="app-version">v{appVersion}</span>
     </div>
     <div class="header-actions">
       <div class="top-profile"><SelectBox value={config.active_profile} options={topProfileOptions} onChange={(value) => void switchProfile(value)} /></div>
@@ -1123,8 +1186,9 @@
         </div>
 
         {#if sideTab === "files"}
-          <input class="side-search" bind:value={fileQuery} placeholder="search" />
-          {#key `${workspace}:${fileTreeVersion}`}
+          <input class="side-search" value={fileQuery} on:input={inputFileQuery} placeholder="search" />
+          {#if fileIndexing}<span class="empty-state">indexing...</span>{/if}
+          {#key `${workspace}:${fileTreeVersion}:${fileIndexLoaded}`}
             <FileTree entries={visibleFiles} expandedPaths={expandedFilePaths} onOpen={openFile} />
           {/key}
         {:else if sideTab === "content" && featureContentSearch}
@@ -1248,11 +1312,14 @@
       {:else}
         <label>
           Path
-          <input bind:value={workspaceDraft} placeholder="~/code/project" />
+          <div class="inline-row">
+            <input bind:value={workspaceDraft} placeholder="~/code/project" />
+            <button class="ghost compact" type="button" on:click={() => void chooseWorkspaceFolder()}>browse</button>
+          </div>
         </label>
         <div class="actions right">
           <button class="ghost" type="button" on:click={() => (addingWorkspace = false)}>back</button>
-          <button type="button" disabled={busy} on:click={() => void selectWorkspace(workspaceDraft)}>save workspace</button>
+          <button type="button" disabled={busy || !workspaceDraft.trim()} on:click={() => void selectWorkspace(workspaceDraft)}>save workspace</button>
         </div>
       {/if}
     </Modal>
@@ -1295,7 +1362,7 @@
             <label>Profile name<input bind:value={modsProfile} placeholder="default" /></label>
             <label>Main model<SelectBox fit value={modsDraft.main_model} options={mainModelOptions} onChange={(value) => (modsDraft = { ...modsDraft, main_model: value })} /></label>
             <label>Main agent<SelectBox fit value={modsDraft.main_agent} options={mainAgentOptions} onChange={(value) => (modsDraft = { ...modsDraft, main_agent: value })} /></label>
-            <label>Subagent concurrency<input bind:value={modsDraft.subagent_max_concurrency} type="number" min="1" max="4" step="1" /></label>
+            <label>Subagent concurrency<input bind:value={modsDraft.subagent_max_concurrency} type="number" min="1" max="5" step="1" /></label>
             <div class="feature-list compact-feature-list">
               <div class="side-title">profile toggles</div>
               <Checkbox checked={modsDraft.rtk_enabled} label={`rtk: ${config.rtk_available ? (modsDraft.rtk_enabled ? "on" : "off") : "not installed"}`} disabled={!config.rtk_available && !modsDraft.rtk_enabled} onChange={(checked) => (modsDraft = { ...modsDraft, rtk_enabled: checked })} />

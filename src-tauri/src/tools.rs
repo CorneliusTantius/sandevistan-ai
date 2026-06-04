@@ -1,10 +1,11 @@
-use crate::command_utils;
+use crate::{ai, command_utils, runtime_wire::NativeToolSpec};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{
     env, fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::OnceLock,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -13,12 +14,12 @@ const MAX_LIST_ENTRIES: usize = 200;
 const MAX_READ_BYTES: u64 = 50_000;
 const MAX_WRITE_BYTES: usize = 200_000;
 const MAX_TOOL_OUTPUT_BYTES: usize = 64_000;
-const MAX_SEARCH_RESULTS: usize = 50;
+const MAX_SEARCH_RESULTS: usize = 200;
 const MAX_DIFF_BYTES: usize = 200_000;
-const TOOL_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
-const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
-const SHELL_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
-const RTK_REWRITE_TIMEOUT: Duration = Duration::from_secs(5);
+const TOOL_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
+const SHELL_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const RTK_REWRITE_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_SHELL_OUTPUT_BYTES: usize = 120_000;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -33,123 +34,53 @@ pub struct ToolOptions {
     pub shell_enabled: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct ToolDef {
-    name: &'static str,
-    description: &'static str,
-    args: &'static str,
-}
-
 struct ToolRunResult {
     ok: bool,
     output: String,
 }
 
-const TOOLS: &[ToolDef] = &[
-    ToolDef {
-        name: "fs.list",
-        description: "list directory entries",
-        args: r#"{"path":"."}"#,
-    },
-    ToolDef {
-        name: "fs.read",
-        description: "read UTF-8 file, capped",
-        args: r#"{"path":"relative/file"}"#,
-    },
-    ToolDef {
-        name: "fs.edit",
-        description: "exact replace in existing file; creates backup",
-        args: r#"{"path":"relative/file","old":"exact text","new":"replacement"}"#,
-    },
-    ToolDef {
-        name: "fs.write",
-        description: "create/overwrite file; creates backup when replacing",
-        args: r#"{"path":"relative/file","content":"text"}"#,
-    },
-    ToolDef {
-        name: "search.rg",
-        description: "content search via ripgrep, respects ignore files, capped",
-        args: r#"{"query":"text","path":".","case_sensitive":false,"max_results":50}"#,
-    },
-    ToolDef {
-        name: "git.status",
-        description: "git branch + porcelain status",
-        args: r#"{}"#,
-    },
-    ToolDef {
-        name: "git.diff",
-        description: "git diff, optional path, capped",
-        args: r#"{"path":"relative/file"}"#,
-    },
-    ToolDef {
-        name: "shell.run",
-        description:
-            "run shell command in workspace when shell tools are enabled; timeout/capped output",
-        args: r#"{"command":"npm test","timeout_secs":30}"#,
-    },
-];
+type ToolExecutor = fn(&Path, &Value, ToolOptions) -> Result<String, String>;
+type ToolValidator = fn(&Value, &ai::ModelMods) -> Result<(), String>;
+type ToolParameters = fn(&[String]) -> Value;
 
-pub fn prompt_with_subagents(
-    subagents_enabled: bool,
-    subagents: &[String],
-    shell_enabled: bool,
-) -> String {
-    let mut lines = vec![
-        "You are Sandevistan, a concise coding agent.".to_string(),
-        "Use tools when workspace context is needed.".to_string(),
-        "Available tools:".to_string(),
-    ];
-    lines.extend(
-        TOOLS
-            .iter()
-            .filter(|tool| tool.name != "shell.run")
-            .map(|tool| format!("- {}: {}. args: {}", tool.name, tool.description, tool.args)),
-    );
-    if shell_enabled {
-        lines.push("- shell.run: run shell command in workspace when needed. args: {\"command\":\"npm test\",\"timeout_secs\":30}".to_string());
-    }
-    if subagents_enabled {
-        let names = if subagents.is_empty() {
-            "none".into()
-        } else {
-            subagents.join(", ")
-        };
-        lines.push(format!("- agent.delegate: run selected subagents concurrently. available: {names}. args: {{\"tasks\":[{{\"agent\":\"scout\",\"task\":\"find relevant files\"}},{{\"agent\":\"reviewer\",\"task\":\"review risks\"}}]}}"));
-    }
-    lines.extend([
-        "Prefer fs.edit for existing files. Use fs.write for new files.".to_string(),
-        "Use search.rg before broad file reads. Use git.status/git.diff for repo state."
-            .to_string(),
-    ]);
-    if shell_enabled {
-        lines.push("Use shell.run for explicit shell/CLI requests. Prefer read-only commands unless user clearly asks for mutations. If RTK is enabled, shell.run executes through rtk.".to_string());
-    }
-    if subagents_enabled {
-        lines.push("When user asks to ping/run/call subagents, use agent.delegate; never claim no subagents spawned before trying it. Use agent.delegate for parallel research/review/implementation planning; max 4 subagents; you own final answer.".to_string());
-    }
-    lines.extend([
-        "Tool call format; emit one or more blocks when independent reads/searches can run together:".to_string(),
-        r#"<tool_call>{"name":"fs.read","args":{"path":"src/main.ts"}}</tool_call>"#.to_string(),
-        "After tool results, answer briefly.".to_string(),
-    ]);
-    lines.join("\n")
+#[derive(Debug, Clone, Copy)]
+struct ToolEntry {
+    name: &'static str,
+    openai_name: &'static str,
+    description: &'static str,
+    mutating: bool,
+    shell_only: bool,
+    delegate_only: bool,
+    parameters: ToolParameters,
+    validate: ToolValidator,
+    execute: ToolExecutor,
 }
 
-pub fn parse_tool_calls(content: &str) -> Vec<ToolCall> {
-    let mut calls = Vec::new();
-    let mut remaining = content;
-    while let Some(start_index) = remaining.find("<tool_call>") {
-        let start = start_index + "<tool_call>".len();
-        let Some(end_index) = remaining[start..].find("</tool_call>") else {
-            break;
-        };
-        let end = start + end_index;
-        if let Ok(call) = serde_json::from_str(remaining[start..end].trim()) {
-            calls.push(call);
-        }
-        remaining = &remaining[end + "</tool_call>".len()..];
+const TOOL_ENTRIES: &[ToolEntry] = &[
+    ToolEntry { name: "fs.list", openai_name: "fs_list", description: "list directory entries", mutating: false, shell_only: false, delegate_only: false, parameters: params_fs_list, validate: validate_fs_list, execute: exec_fs_list },
+    ToolEntry { name: "fs.read", openai_name: "fs_read", description: "read UTF-8 file, capped", mutating: false, shell_only: false, delegate_only: false, parameters: params_fs_read, validate: validate_fs_read, execute: exec_fs_read },
+    ToolEntry { name: "fs.edit", openai_name: "fs_edit", description: "exact replace in existing file; creates backup", mutating: true, shell_only: false, delegate_only: false, parameters: params_fs_edit, validate: validate_fs_edit, execute: exec_fs_edit },
+    ToolEntry { name: "fs.write", openai_name: "fs_write", description: "create/overwrite file; creates backup when replacing", mutating: true, shell_only: false, delegate_only: false, parameters: params_fs_write, validate: validate_fs_write, execute: exec_fs_write },
+    ToolEntry { name: "search.rg", openai_name: "search_rg", description: "content search via ripgrep, respects ignore files, capped", mutating: false, shell_only: false, delegate_only: false, parameters: params_search_rg, validate: validate_search_rg, execute: exec_search_rg },
+    ToolEntry { name: "git.status", openai_name: "git_status", description: "git branch + porcelain status", mutating: false, shell_only: false, delegate_only: false, parameters: params_empty, validate: validate_noop, execute: exec_git_status },
+    ToolEntry { name: "git.diff", openai_name: "git_diff", description: "git diff, optional path, capped", mutating: false, shell_only: false, delegate_only: false, parameters: params_git_diff, validate: validate_git_diff, execute: exec_git_diff },
+    ToolEntry { name: "shell.run", openai_name: "shell_run", description: "run shell command in workspace; timeout/capped output", mutating: true, shell_only: true, delegate_only: false, parameters: params_shell_run, validate: validate_shell_run, execute: exec_shell_run },
+    ToolEntry { name: "agent.delegate", openai_name: "agent_delegate", description: "run selected subagents concurrently; provide many small specific independent tasks, not one broad task", mutating: false, shell_only: false, delegate_only: true, parameters: params_agent_delegate, validate: validate_agent_delegate, execute: exec_agent_delegate },
+];
+
+fn find_tool_entry(name: &str) -> Option<&'static ToolEntry> {
+    match name {
+        "fs.list" => Some(&TOOL_ENTRIES[0]),
+        "fs.read" => Some(&TOOL_ENTRIES[1]),
+        "fs.edit" => Some(&TOOL_ENTRIES[2]),
+        "fs.write" => Some(&TOOL_ENTRIES[3]),
+        "search.rg" => Some(&TOOL_ENTRIES[4]),
+        "git.status" => Some(&TOOL_ENTRIES[5]),
+        "git.diff" => Some(&TOOL_ENTRIES[6]),
+        "shell.run" => Some(&TOOL_ENTRIES[7]),
+        "agent.delegate" => Some(&TOOL_ENTRIES[8]),
+        _ => None,
     }
-    calls
 }
 
 pub fn run_with_options(workspace: &Path, call: &ToolCall, options: ToolOptions) -> String {
@@ -160,51 +91,9 @@ pub fn run_with_options(workspace: &Path, call: &ToolCall, options: ToolOptions)
 }
 
 fn run_result(workspace: &Path, call: &ToolCall, options: ToolOptions) -> ToolRunResult {
-    let result = match call.name.as_str() {
-        "fs.list" => {
-            let path = arg_string(&call.args, "path").unwrap_or_else(|| ".".into());
-            if options.rtk_enabled && rtk_available() {
-                rtk_list(workspace, &path).or_else(|_| fs_list(workspace, path))
-            } else {
-                fs_list(workspace, path)
-            }
-        }
-        "fs.read" => match arg_string(&call.args, "path") {
-            Some(path) => {
-                if options.rtk_enabled && rtk_available() {
-                    rtk_read(workspace, &path).or_else(|_| fs_read(workspace, path))
-                } else {
-                    fs_read(workspace, path)
-                }
-            }
-            None => Err("missing path".into()),
-        },
-        "fs.edit" => fs_edit(workspace, &call.args),
-        "fs.write" => fs_write(workspace, &call.args),
-        "search.rg" => {
-            if options.rtk_enabled && rtk_available() {
-                rtk_grep(workspace, &call.args).or_else(|_| search_rg(workspace, &call.args))
-            } else {
-                search_rg(workspace, &call.args)
-            }
-        }
-        "git.status" => {
-            if options.rtk_enabled && rtk_available() {
-                rtk_git_status(workspace).or_else(|_| git_status(workspace))
-            } else {
-                git_status(workspace)
-            }
-        }
-        "git.diff" => {
-            if options.rtk_enabled && rtk_available() {
-                rtk_git_diff(workspace, &call.args).or_else(|_| git_diff(workspace, &call.args))
-            } else {
-                git_diff(workspace, &call.args)
-            }
-        }
-        "shell.run" => shell_run(workspace, &call.args, options),
-        _ => Err(format!("unknown tool: {}", call.name)),
-    };
+    let result = find_tool_entry(&call.name)
+        .map(|entry| (entry.execute)(workspace, &call.args, options))
+        .unwrap_or_else(|| Err(format!("unknown tool: {}", call.name)));
 
     match result {
         Ok(output) => ToolRunResult { ok: true, output },
@@ -224,13 +113,10 @@ fn shell_run(workspace: &Path, args: &Value, options: ToolOptions) -> Result<Str
     if command.is_empty() {
         return Err("command is empty".into());
     }
-    if command.chars().count() > 2_000 {
-        return Err("command too long".into());
-    }
     let timeout = args
         .get("timeout_secs")
         .and_then(Value::as_u64)
-        .map(|value| value.clamp(1, 60))
+        .map(|value| value.clamp(1, 300))
         .map(Duration::from_secs)
         .unwrap_or(SHELL_COMMAND_TIMEOUT);
 
@@ -505,20 +391,75 @@ fn git_status(workspace: &Path) -> Result<String, String> {
 }
 
 fn git_diff(workspace: &Path, args: &Value) -> Result<String, String> {
-    let owned;
-    let git_args: Vec<&str> = if let Some(relative) = arg_string(args, "path") {
+    let mut output = if let Some(relative) = arg_string(args, "path") {
         clean_relative(&relative)?;
-        owned = vec!["diff".to_string(), "--".to_string(), relative];
-        owned.iter().map(String::as_str).collect()
+        let diff = git_output(workspace, &["diff", "--", &relative], MAX_DIFF_BYTES)?;
+        if diff.trim().is_empty() {
+            untracked_diff(workspace, Some(&relative))?
+        } else {
+            diff
+        }
     } else {
-        vec!["diff"]
+        let mut diff = git_output(workspace, &["diff"], MAX_DIFF_BYTES)?;
+        let untracked = untracked_diff(workspace, None)?;
+        if !untracked.trim().is_empty() {
+            if !diff.trim().is_empty() {
+                diff.push_str("\n");
+            }
+            diff.push_str(&untracked);
+        }
+        diff
     };
-    let output = git_output(workspace, &git_args, MAX_DIFF_BYTES)?;
+    output = truncate_string(output, MAX_DIFF_BYTES);
     if output.trim().is_empty() {
         Ok("no diff".into())
     } else {
         Ok(output)
     }
+}
+
+fn untracked_diff(workspace: &Path, relative: Option<&str>) -> Result<String, String> {
+    let mut command = Command::new("git");
+    command
+        .current_dir(workspace)
+        .args(["ls-files", "--others", "--exclude-standard", "--"]);
+    if let Some(path) = relative {
+        command.arg(path);
+    }
+    let output = command_utils::output_with_timeout("git", &mut command, GIT_COMMAND_TIMEOUT)?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+
+    let mut diff = String::new();
+    for path in String::from_utf8_lossy(&output.stdout).lines() {
+        let clean = clean_relative(path)?;
+        let full_path = resolve_existing(workspace, path)?;
+        if !full_path.is_file() {
+            continue;
+        }
+        let content = match fs::read_to_string(&full_path) {
+            Ok(content) => content,
+            Err(_) => {
+                diff.push_str(&format!("diff --git a/{path} b/{path}\nnew file mode 100644\nBinary file {path} differs\n"));
+                continue;
+            }
+        };
+        diff.push_str(&format!(
+            "diff --git a/{0} b/{0}\nnew file mode 100644\n--- /dev/null\n+++ b/{0}\n@@ -0,0 +1,{1} @@\n",
+            clean.display(),
+            content.lines().count()
+        ));
+        for line in content.lines() {
+            diff.push('+');
+            diff.push_str(line);
+            diff.push('\n');
+        }
+        if diff.len() >= MAX_DIFF_BYTES {
+            break;
+        }
+    }
+    Ok(diff)
 }
 
 fn git_output(workspace: &Path, args: &[&str], max_bytes: usize) -> Result<String, String> {
@@ -636,10 +577,6 @@ fn rtk_output(label: &str, command: &mut Command, max_bytes: usize) -> Result<St
     ))
 }
 
-pub fn is_mutating(call: &ToolCall) -> bool {
-    matches!(call.name.as_str(), "fs.edit" | "fs.write" | "shell.run")
-}
-
 fn rtk_available() -> bool {
     rtk_path().is_some()
 }
@@ -651,12 +588,17 @@ fn rtk_command() -> Result<Command, String> {
 }
 
 fn rtk_path() -> Option<PathBuf> {
-    env::var_os("PATH")
-        .into_iter()
-        .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
-        .chain(rtk_fallback_dirs())
-        .map(|path| path.join("rtk"))
-        .find(|path| path.is_file())
+    static RTK_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+    RTK_PATH
+        .get_or_init(|| {
+            env::var_os("PATH")
+                .into_iter()
+                .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
+                .chain(rtk_fallback_dirs())
+                .map(|path| path.join("rtk"))
+                .find(|path| path.is_file())
+        })
+        .clone()
 }
 
 fn rtk_fallback_dirs() -> Vec<PathBuf> {
@@ -783,6 +725,361 @@ fn config_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
         .join(CONFIG_DIR_NAME)
+}
+
+pub fn native_system_prompt(
+    subagents_enabled: bool,
+    subagents: &[String],
+    shell_enabled: bool,
+) -> String {
+    let mut lines = vec![
+        "You are Sandevistan, a concise coding agent.".to_string(),
+        "Use tools when workspace context is needed; otherwise answer directly.".to_string(),
+        "Prefer targeted reads/searches over broad exploration.".to_string(),
+        "After tool results, answer briefly with final useful result.".to_string(),
+        "Do not call tools after task is complete.".to_string(),
+        "Prefer fs.edit for existing files. Use fs.write for new files.".to_string(),
+    ];
+    if shell_enabled {
+        lines.push("Use shell.run only when shell/CLI execution is clearly useful. Prefer read-only commands unless user asks for mutation.".into());
+    }
+    if subagents_enabled && !subagents.is_empty() {
+        lines.push(format!("Subagents are available via agent.delegate: {}. Split delegation into multiple small, specific, independent tasks so subagents run concurrently; avoid one broad subagent task.", subagents.join(", ")));
+    }
+    lines.join("\n")
+}
+
+fn spec(entry: &ToolEntry, parameters: Value) -> NativeToolSpec {
+    NativeToolSpec {
+        name: entry.name.into(),
+        openai_name: entry.openai_name.into(),
+        description: entry.description.into(),
+        parameters,
+    }
+}
+
+pub fn original_tool_name(name: &str) -> Option<&'static str> {
+    match name {
+        "fs_list" => Some("fs.list"),
+        "fs_read" => Some("fs.read"),
+        "fs_edit" => Some("fs.edit"),
+        "fs_write" => Some("fs.write"),
+        "search_rg" => Some("search.rg"),
+        "git_status" => Some("git.status"),
+        "git_diff" => Some("git.diff"),
+        "shell_run" => Some("shell.run"),
+        "agent_delegate" => Some("agent.delegate"),
+        _ => None,
+    }
+}
+
+pub struct ToolRegistry {
+    subagents_enabled: bool,
+    subagents: Vec<String>,
+    shell_enabled: bool,
+    read_only: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ValidatedToolCall {
+    pub call: ToolCall,
+}
+
+impl ToolRegistry {
+    pub fn new(
+        subagents_enabled: bool,
+        subagents: &[String],
+        shell_enabled: bool,
+        read_only: bool,
+    ) -> Self {
+        Self {
+            subagents_enabled,
+            subagents: subagents.to_vec(),
+            shell_enabled,
+            read_only,
+        }
+    }
+
+    pub fn specs(&self) -> Vec<NativeToolSpec> {
+        TOOL_ENTRIES
+            .iter()
+            .filter(|entry| self.entry_enabled(entry))
+            .map(|entry| spec(entry, (entry.parameters)(&self.subagents)))
+            .collect()
+    }
+
+    pub fn validate(
+        &self,
+        call: ToolCall,
+        mods: &ai::ModelMods,
+    ) -> Result<ValidatedToolCall, String> {
+        validate_tool_call(call, mods, self.read_only)
+    }
+
+    fn entry_enabled(&self, entry: &ToolEntry) -> bool {
+        if self.read_only && entry.mutating {
+            return false;
+        }
+        if entry.shell_only && !self.shell_enabled {
+            return false;
+        }
+        if entry.delegate_only && (!self.subagents_enabled || self.subagents.is_empty()) {
+            return false;
+        }
+        true
+    }
+}
+
+pub fn validate_tool_call(
+    call: ToolCall,
+    mods: &ai::ModelMods,
+    read_only: bool,
+) -> Result<ValidatedToolCall, String> {
+    let entry =
+        find_tool_entry(&call.name).ok_or_else(|| format!("unknown tool: {}", call.name))?;
+    if !call.args.is_object() {
+        return Err("args must be a JSON object".into());
+    }
+    if read_only && entry.mutating {
+        return Err("mutating tools disabled in read-only runtime".into());
+    }
+    if entry.shell_only && !mods.shell_enabled {
+        return Err("shell.run disabled for this profile".into());
+    }
+    if entry.delegate_only && (!mods.subagents_enabled || mods.subagents.is_empty()) {
+        return Err("agent.delegate disabled for this profile".into());
+    }
+    (entry.validate)(&call.args, mods)?;
+    Ok(ValidatedToolCall { call })
+}
+
+fn params_empty(_: &[String]) -> Value {
+    json!({"type":"object","properties":{},"required":[],"additionalProperties":false})
+}
+
+fn params_fs_list(_: &[String]) -> Value {
+    json!({"type":"object","properties":{"path":{"type":"string","default":"."}},"required":[],"additionalProperties":false})
+}
+
+fn params_fs_read(_: &[String]) -> Value {
+    json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false})
+}
+
+fn params_fs_edit(_: &[String]) -> Value {
+    json!({"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"],"additionalProperties":false})
+}
+
+fn params_fs_write(_: &[String]) -> Value {
+    json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false})
+}
+
+fn params_search_rg(_: &[String]) -> Value {
+    json!({"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string","default":"."},"case_sensitive":{"type":"boolean","default":false},"max_results":{"type":"integer","minimum":1,"maximum":200,"default":200}},"required":["query"],"additionalProperties":false})
+}
+
+fn params_git_diff(_: &[String]) -> Value {
+    json!({"type":"object","properties":{"path":{"type":"string"}},"required":[],"additionalProperties":false})
+}
+
+fn params_shell_run(_: &[String]) -> Value {
+    json!({"type":"object","properties":{"command":{"type":"string"},"timeout_secs":{"type":"integer","minimum":1,"maximum":300,"default":120}},"required":["command"],"additionalProperties":false})
+}
+
+fn params_agent_delegate(subagents: &[String]) -> Value {
+    json!({"type":"object","properties":{"tasks":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","properties":{"agent":{"type":"string","enum":subagents},"task":{"type":"string","maxLength":1000}},"required":["agent","task"],"additionalProperties":false}}},"required":["tasks"],"additionalProperties":false})
+}
+
+fn validate_noop(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+    ensure_no_extra_args(args, &[])
+}
+
+fn validate_fs_list(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+    ensure_no_extra_args(args, &["path"])?;
+    optional_string(args, "path")
+}
+
+fn validate_fs_read(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+    ensure_no_extra_args(args, &["path"])?;
+    required_string(args, "path")
+}
+
+fn validate_fs_edit(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+    ensure_no_extra_args(args, &["path", "old", "new"])?;
+    required_string(args, "path")?;
+    required_string(args, "old")?;
+    required_string(args, "new")
+}
+
+fn validate_fs_write(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+    ensure_no_extra_args(args, &["path", "content"])?;
+    required_string(args, "path")?;
+    required_string(args, "content")
+}
+
+fn validate_search_rg(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+    ensure_no_extra_args(args, &["query", "path", "case_sensitive", "max_results"])?;
+    required_string(args, "query")?;
+    optional_string(args, "path")?;
+    optional_bool(args, "case_sensitive")?;
+    optional_integer(args, "max_results")
+}
+
+fn validate_git_diff(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+    ensure_no_extra_args(args, &["path"])?;
+    optional_string(args, "path")
+}
+
+fn validate_shell_run(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+    ensure_no_extra_args(args, &["command", "timeout_secs"])?;
+    required_string(args, "command")?;
+    optional_integer(args, "timeout_secs")
+}
+
+fn validate_agent_delegate(args: &Value, mods: &ai::ModelMods) -> Result<(), String> {
+    ensure_no_extra_args(args, &["tasks"])?;
+    validate_delegate_tasks(args, mods)
+}
+
+fn ensure_no_extra_args(args: &Value, allowed: &[&str]) -> Result<(), String> {
+    let Some(object) = args.as_object() else {
+        return Err("args must be a JSON object".into());
+    };
+    if let Some(extra) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("unexpected arg: {extra}"));
+    }
+    Ok(())
+}
+
+fn required_string(args: &Value, key: &str) -> Result<(), String> {
+    match args.get(key).and_then(Value::as_str) {
+        Some(value) if !value.trim().is_empty() => Ok(()),
+        Some(_) => Err(format!("{key} must not be empty")),
+        None => Err(format!("missing required arg: {key}")),
+    }
+}
+
+fn optional_string(args: &Value, key: &str) -> Result<(), String> {
+    match args.get(key) {
+        Some(value) if !value.is_string() => Err(format!("{key} must be a string")),
+        _ => Ok(()),
+    }
+}
+
+fn optional_bool(args: &Value, key: &str) -> Result<(), String> {
+    match args.get(key) {
+        Some(value) if !value.is_boolean() => Err(format!("{key} must be a boolean")),
+        _ => Ok(()),
+    }
+}
+
+fn optional_integer(args: &Value, key: &str) -> Result<(), String> {
+    match args.get(key) {
+        Some(value) if value.as_u64().is_none() => Err(format!("{key} must be an integer")),
+        _ => Ok(()),
+    }
+}
+
+fn validate_delegate_tasks(args: &Value, mods: &ai::ModelMods) -> Result<(), String> {
+    let tasks = args
+        .get("tasks")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "missing required arg: tasks".to_string())?;
+    if tasks.is_empty() {
+        return Err("tasks must not be empty".into());
+    }
+    if tasks.len() > 8 {
+        return Err("tasks exceeds maxItems 8".into());
+    }
+    if tasks.len() == 1 {
+        if let Some(task_text) = tasks[0].get("task").and_then(Value::as_str) {
+            if task_text.chars().count() > 350 {
+                return Err(
+                    "single delegate task too broad; split into multiple small concurrent tasks"
+                        .into(),
+                );
+            }
+        }
+    }
+    for (index, task) in tasks.iter().enumerate() {
+        let agent = task
+            .get("agent")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("tasks[{index}].agent must be a string"))?;
+        if !mods.subagents.iter().any(|name| name == agent) {
+            return Err(format!("tasks[{index}].agent unknown or disabled: {agent}"));
+        }
+        let task_text = task
+            .get("task")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("tasks[{index}].task must be a string"))?;
+        if task_text.trim().is_empty() {
+            return Err(format!("tasks[{index}].task must not be empty"));
+        }
+        if task_text.chars().count() > 1_000 {
+            return Err(format!(
+                "tasks[{index}].task too broad; split into smaller specific tasks under 1000 chars"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn exec_fs_list(workspace: &Path, args: &Value, options: ToolOptions) -> Result<String, String> {
+    let path = arg_string(args, "path").unwrap_or_else(|| ".".into());
+    if options.rtk_enabled && rtk_available() {
+        rtk_list(workspace, &path).or_else(|_| fs_list(workspace, path))
+    } else {
+        fs_list(workspace, path)
+    }
+}
+
+fn exec_fs_read(workspace: &Path, args: &Value, options: ToolOptions) -> Result<String, String> {
+    let path = arg_string(args, "path").ok_or_else(|| "missing path".to_string())?;
+    if options.rtk_enabled && rtk_available() {
+        rtk_read(workspace, &path).or_else(|_| fs_read(workspace, path))
+    } else {
+        fs_read(workspace, path)
+    }
+}
+
+fn exec_fs_edit(workspace: &Path, args: &Value, _: ToolOptions) -> Result<String, String> {
+    fs_edit(workspace, args)
+}
+
+fn exec_fs_write(workspace: &Path, args: &Value, _: ToolOptions) -> Result<String, String> {
+    fs_write(workspace, args)
+}
+
+fn exec_search_rg(workspace: &Path, args: &Value, options: ToolOptions) -> Result<String, String> {
+    if options.rtk_enabled && rtk_available() {
+        rtk_grep(workspace, args).or_else(|_| search_rg(workspace, args))
+    } else {
+        search_rg(workspace, args)
+    }
+}
+
+fn exec_git_status(workspace: &Path, _: &Value, options: ToolOptions) -> Result<String, String> {
+    if options.rtk_enabled && rtk_available() {
+        rtk_git_status(workspace).or_else(|_| git_status(workspace))
+    } else {
+        git_status(workspace)
+    }
+}
+
+fn exec_git_diff(workspace: &Path, args: &Value, options: ToolOptions) -> Result<String, String> {
+    if options.rtk_enabled && rtk_available() {
+        rtk_git_diff(workspace, args).or_else(|_| git_diff(workspace, args))
+    } else {
+        git_diff(workspace, args)
+    }
+}
+
+fn exec_shell_run(workspace: &Path, args: &Value, options: ToolOptions) -> Result<String, String> {
+    shell_run(workspace, args, options)
+}
+
+fn exec_agent_delegate(_: &Path, _: &Value, _: ToolOptions) -> Result<String, String> {
+    Err("agent.delegate must be executed by agent runtime".into())
 }
 
 fn now_ms() -> u128 {

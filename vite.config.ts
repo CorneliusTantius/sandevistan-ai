@@ -1,11 +1,17 @@
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
+
+const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
+  define: {
+    "import.meta.env.PACKAGE_VERSION": JSON.stringify(pkg.version),
+  },
   plugins: [svelte()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

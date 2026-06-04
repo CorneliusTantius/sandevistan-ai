@@ -176,6 +176,9 @@ fn walk_paths(
             continue;
         }
         paths.push(path.to_path_buf());
+        if paths.len() >= MAX_INDEX_ENTRIES {
+            break;
+        }
     }
     Ok(paths)
 }
