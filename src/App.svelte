@@ -5,14 +5,14 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open } from "@tauri-apps/plugin-dialog";
   import Checkbox from "./components/Checkbox.svelte";
-  import DiffPane, { type DiffTab } from "./components/DiffPane.svelte";
-  import EditorPane, { type OpenFile } from "./components/EditorPane.svelte";
+  import type { DiffTab } from "./components/DiffPane.svelte";
+  import type { OpenFile } from "./components/EditorPane.svelte";
   import FileTree, { type FileEntry } from "./components/FileTree.svelte";
   import ItemList, { type Item } from "./components/ItemList.svelte";
   import MessageView from "./components/MessageView.svelte";
   import Modal from "./components/Modal.svelte";
   import SelectBox, { type SelectOption } from "./components/SelectBox.svelte";
-  import TerminalPane from "./components/TerminalPane.svelte";
+
   import ToolGroup from "./components/ToolGroup.svelte";
 
   const appVersion = import.meta.env.PACKAGE_VERSION ?? "dev";
@@ -99,6 +99,9 @@
   let showMods = false;
   let showWorkspace = false;
   let addingModel = false;
+  let EditorPaneComponent: any = null;
+  let DiffPaneComponent: any = null;
+  let TerminalPaneComponent: any = null;
   let messages: Message[] = [];
   let messagesEl: HTMLDivElement;
   let streamBuffer = "";
@@ -266,6 +269,18 @@
     } catch (error) {
       addMessage("error", String(error));
     }
+  }
+
+  async function ensureEditorPane() {
+    EditorPaneComponent ??= (await import("./components/EditorPane.svelte")).default;
+  }
+
+  async function ensureDiffPane() {
+    DiffPaneComponent ??= (await import("./components/DiffPane.svelte")).default;
+  }
+
+  async function ensureTerminalPane() {
+    TerminalPaneComponent ??= (await import("./components/TerminalPane.svelte")).default;
   }
 
   function formatContext(value: number) {
@@ -767,6 +782,7 @@
   async function openGitDiff(path = "") {
     gitLoading = true;
     try {
+      await ensureDiffPane();
       let diff = await invoke<string>("git_diff", { request: { path: path || null } });
       if (!diff.trim()) diff = "no diff";
       const id = `diff:${path || "workspace"}`;
@@ -872,6 +888,7 @@
     }
 
     try {
+      await ensureEditorPane();
       const file = await invoke<{ path: string; content: string }>("file_read", { request: { path: entry.path } });
       openFiles = [...openFiles, { path: file.path, content: file.content, original: file.content, dirty: false, stale: false, mode: "edit" }];
       activeTab = file.path;
@@ -942,7 +959,8 @@
     if (activeTab === "chat") activeTab = fallbackTab();
   }
 
-  function openTerminal() {
+  async function openTerminal() {
+    await ensureTerminalPane();
     terminalOpen = true;
     activeTab = "terminal";
   }
@@ -1166,7 +1184,7 @@
     <div class="header-actions">
       <div class="top-profile"><SelectBox value={config.active_profile} options={topProfileOptions} onChange={(value) => void switchProfile(value)} /></div>
       <button class="ghost" type="button" on:click={openMods}>mods</button>
-      <button class="ghost" type="button" on:click={openTerminal}>term</button>
+      <button class="ghost" type="button" on:click={() => void openTerminal()}>term</button>
       <button class="window-close" type="button" aria-label="close" on:click={closeWindow}>×</button>
     </div>
   </header>
@@ -1258,13 +1276,18 @@
 
       {#each openFiles as file (file.path)}
         <section class="editor-slot" class:hidden-pane={activeTab !== file.path}>
-          <EditorPane
-            {file}
-            onChange={(content) => updateOpenFile(file.path, content)}
-            onDirtyChange={(dirty) => setOpenFileDirty(file.path, dirty)}
-            onMode={(mode) => setFileMode(file.path, mode)}
-            onSave={(content) => void saveOpenFile(file.path, content)}
-          />
+          {#if EditorPaneComponent}
+            <svelte:component
+              this={EditorPaneComponent}
+              {file}
+              onChange={(content: string) => updateOpenFile(file.path, content)}
+              onDirtyChange={(dirty: boolean) => setOpenFileDirty(file.path, dirty)}
+              onMode={(mode: "edit" | "diff") => setFileMode(file.path, mode)}
+              onSave={(content: string) => void saveOpenFile(file.path, content)}
+            />
+          {:else}
+            <section class="empty-editor">loading editor...</section>
+          {/if}
         </section>
       {/each}
 
@@ -1290,10 +1313,18 @@
         </form>
       </section>
       {:else if activeTab === "terminal" && terminalOpen}
-        <TerminalPane id={terminalId} />
+        {#if TerminalPaneComponent}
+          <svelte:component this={TerminalPaneComponent} id={terminalId} />
+        {:else}
+          <section class="empty-editor">loading terminal...</section>
+        {/if}
       {:else if diffTabs.find((tab) => tab.id === activeTab)}
         {@const tab = diffTabs.find((tab) => tab.id === activeTab)!}
-        <DiffPane {tab} />
+        {#if DiffPaneComponent}
+          <svelte:component this={DiffPaneComponent} {tab} />
+        {:else}
+          <section class="empty-editor">loading diff...</section>
+        {/if}
       {:else if !openFiles.find((file) => file.path === activeTab)}
         <section class="empty-editor">open file, terminal, or chat tab</section>
       {/if}
