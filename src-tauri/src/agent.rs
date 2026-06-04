@@ -481,50 +481,114 @@ async fn run_agent_loop(
         let prompt =
             context::build_prompt(&system_prompt, Some(&summary), &messages, &prompt_config);
 
-        let mut streamed = false;
-        let mut pending = String::new();
-        let content =
-            ai::complete_chat_stream_model(prompt, Some(mods.main_model.clone()), |delta| {
-                if streamed {
-                    emit_stream_delta(app, session_id, &delta);
+        let (tool_tx, mut tool_rx) = tokio::sync::mpsc::unbounded_channel::<tools::ToolCall>();
+        let stream_detector = Arc::new(Mutex::new(ToolCallStreamDetector::default()));
+        let streamed = Arc::new(Mutex::new(false));
+        let stream_app = app.clone();
+        let stream_session_id = session_id.to_string();
+        let stream_model = mods.main_model.clone();
+        let stream_detector_for_delta = stream_detector.clone();
+        let streamed_for_delta = streamed.clone();
+        let tool_tx_for_delta = tool_tx.clone();
+        let stream_app_for_delta = stream_app.clone();
+        let stream_session_id_for_delta = stream_session_id.clone();
+        let mut stream_task = tauri::async_runtime::spawn(async move {
+            let content = ai::complete_chat_stream_model(prompt, Some(stream_model), move |delta| {
+                let update = match stream_detector_for_delta.lock() {
+                    Ok(mut detector) => detector.push(&delta),
+                    Err(_) => return,
+                };
+                for call in update.calls {
+                    let _ = tool_tx_for_delta.send(call);
+                }
+                if update.text.is_empty() {
                     return;
                 }
-
-                pending.push_str(&delta);
-                let trimmed = pending.trim_start();
-                if "<tool_call>".starts_with(trimmed) || trimmed.starts_with("<tool_call>") {
-                    return;
+                if let Ok(mut has_streamed) = streamed_for_delta.lock() {
+                    if !*has_streamed {
+                        emit_stream_start(&stream_app_for_delta, &stream_session_id_for_delta);
+                        *has_streamed = true;
+                    }
                 }
-
-                streamed = true;
-                emit_stream_start(app, session_id);
-                emit_stream_delta(app, session_id, &pending);
-                pending.clear();
+                emit_stream_delta(&stream_app_for_delta, &stream_session_id_for_delta, &update.text);
             })
             .await?;
-        let calls = tools::parse_tool_calls(&content);
-        if !calls.is_empty() {
-            for call in &calls {
-                let signature = tool_signature(call);
-                let count = tool_call_counts.entry(signature.clone()).or_default();
-                *count += 1;
-                if *count > MAX_REPEAT_TOOL_CALLS {
-                    return Err(format!("repeated tool call loop: {signature}"));
+
+            let update = stream_detector
+                .lock()
+                .map_err(|_| "tool stream detector lock poisoned".to_string())?
+                .finish();
+            for call in update.calls {
+                let _ = tool_tx.send(call);
+            }
+            if !update.text.is_empty() {
+                if let Ok(mut has_streamed) = streamed.lock() {
+                    if !*has_streamed {
+                        emit_stream_start(&stream_app, &stream_session_id);
+                        *has_streamed = true;
+                    }
                 }
+                emit_stream_delta(&stream_app, &stream_session_id, &update.text);
             }
 
-            let tool_contents = run_tool_calls(workspace, calls, mods.clone()).await;
-            for tool_content in tool_contents {
-                emit_stream_tool(app, session_id, &tool_content);
-                messages.push(ChatMessage {
-                    role: "tool".into(),
-                    content: tool_content,
-                });
+            let detector = stream_detector
+                .lock()
+                .map_err(|_| "tool stream detector lock poisoned".to_string())?;
+            let streamed = streamed
+                .lock()
+                .map(|value| *value)
+                .map_err(|_| "stream state lock poisoned".to_string())?;
+            Ok::<_, String>(StreamResult {
+                content,
+                visible_content: detector.visible_content(),
+                saw_tool_call: detector.saw_tool_call,
+                streamed,
+            })
+        });
+
+        let mut stream_result = None;
+        loop {
+            tokio::select! {
+                maybe_call = tool_rx.recv() => {
+                    match maybe_call {
+                        Some(call) => {
+                            emit_stream_tool(app, session_id, &format!("{}\nstatus: running...", call.name));
+                            let tool_content = run_streamed_tool_call(workspace, call, mods.clone(), &mut tool_call_counts).await?;
+                            emit_stream_tool(app, session_id, &tool_content);
+                            messages.push(ChatMessage {
+                                role: "tool".into(),
+                                content: tool_content,
+                            });
+                        }
+                        None if stream_result.is_some() => break,
+                        None => {}
+                    }
+                }
+                result = &mut stream_task, if stream_result.is_none() => {
+                    let result = result
+                        .map_err(|error| format!("stream task failed: {error}"))??;
+                    stream_result = Some(result);
+                    while let Ok(call) = tool_rx.try_recv() {
+                        emit_stream_tool(app, session_id, &format!("{}\nstatus: running...", call.name));
+                        let tool_content = run_streamed_tool_call(workspace, call, mods.clone(), &mut tool_call_counts).await?;
+                        emit_stream_tool(app, session_id, &tool_content);
+                        messages.push(ChatMessage {
+                            role: "tool".into(),
+                            content: tool_content,
+                        });
+                    }
+                    break;
+                }
             }
+        }
+
+        let stream_result = stream_result.ok_or_else(|| "stream ended without result".to_string())?;
+        if stream_result.saw_tool_call {
             continue;
         }
 
-        if !streamed {
+        let content = stream_result.assistant_content();
+        if !stream_result.streamed {
             emit_stream_start(app, session_id);
             emit_stream_delta(app, session_id, &content);
         }
@@ -548,6 +612,136 @@ fn should_ping_subagents(messages: &[ChatMessage], mods: &ai::ModelMods) -> bool
     }
     let content = message.content.to_lowercase();
     content.contains("ping") && content.contains("subagent")
+}
+
+#[derive(Default)]
+struct ToolCallStreamDetector {
+    pending: String,
+    visible: String,
+    saw_tool_call: bool,
+}
+
+struct ToolCallStreamUpdate {
+    text: String,
+    calls: Vec<tools::ToolCall>,
+}
+
+struct StreamResult {
+    content: String,
+    visible_content: String,
+    saw_tool_call: bool,
+    streamed: bool,
+}
+
+impl StreamResult {
+    fn assistant_content(&self) -> String {
+        let visible = self.visible_content.trim().to_string();
+        if visible.is_empty() {
+            self.content.clone()
+        } else {
+            visible
+        }
+    }
+}
+
+impl ToolCallStreamDetector {
+    fn push(&mut self, delta: &str) -> ToolCallStreamUpdate {
+        self.pending.push_str(delta);
+        self.drain(false)
+    }
+
+    fn finish(&mut self) -> ToolCallStreamUpdate {
+        self.drain(true)
+    }
+
+    fn visible_content(&self) -> String {
+        self.visible.trim().to_string()
+    }
+
+    fn drain(&mut self, final_flush: bool) -> ToolCallStreamUpdate {
+        const OPEN: &str = "<tool_call>";
+        const CLOSE: &str = "</tool_call>";
+
+        let mut text = String::new();
+        let mut calls = Vec::new();
+
+        loop {
+            let Some(start) = self.pending.find(OPEN) else {
+                let emit_len = if final_flush {
+                    self.pending.len()
+                } else {
+                    safe_plain_prefix_len(&self.pending, OPEN)
+                };
+                if emit_len > 0 {
+                    append_visible_text(&self.visible, &mut text, &self.pending[..emit_len]);
+                    self.pending.drain(..emit_len);
+                }
+                break;
+            };
+
+            if start > 0 {
+                append_visible_text(&self.visible, &mut text, &self.pending[..start]);
+                self.pending.drain(..start);
+                continue;
+            }
+
+            let body_start = OPEN.len();
+            let Some(close_start) = self.pending[body_start..].find(CLOSE) else {
+                break;
+            };
+            let close_start = body_start + close_start;
+            let block_end = close_start + CLOSE.len();
+            let json = self.pending[body_start..close_start].trim();
+            match serde_json::from_str::<tools::ToolCall>(json) {
+                Ok(call) => {
+                    self.saw_tool_call = true;
+                    calls.push(call);
+                }
+                Err(_) => append_visible_text(&self.visible, &mut text, &self.pending[..block_end]),
+            }
+            self.pending.drain(..block_end);
+        }
+
+        if !text.is_empty() {
+            self.visible.push_str(&text);
+        }
+        ToolCallStreamUpdate { text, calls }
+    }
+}
+
+fn append_visible_text(existing: &str, output: &mut String, value: &str) {
+    if existing.trim().is_empty() && output.trim().is_empty() && value.trim().is_empty() {
+        return;
+    }
+    output.push_str(value);
+}
+
+fn safe_plain_prefix_len(value: &str, marker: &str) -> usize {
+    let mut keep = 0;
+    for index in 1..=value.len().min(marker.len() - 1) {
+        if value.is_char_boundary(value.len() - index) && marker.starts_with(&value[value.len() - index..]) {
+            keep = index;
+        }
+    }
+    value.len() - keep
+}
+
+async fn run_streamed_tool_call(
+    workspace: &PathBuf,
+    call: tools::ToolCall,
+    mods: ai::ModelMods,
+    tool_call_counts: &mut HashMap<String, usize>,
+) -> Result<String, String> {
+    let signature = tool_signature(&call);
+    let count = tool_call_counts.entry(signature.clone()).or_default();
+    *count += 1;
+    if *count > MAX_REPEAT_TOOL_CALLS {
+        return Err(format!("repeated tool call loop: {signature}"));
+    }
+
+    let name = call.name.clone();
+    let output = run_tool_call(workspace.clone(), call, mods).await;
+    Ok(format!("{name}\n{output}"))
 }
 
 async fn run_tool_calls(

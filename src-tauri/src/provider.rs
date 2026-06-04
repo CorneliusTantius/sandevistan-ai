@@ -63,6 +63,8 @@ const API_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 const API_POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 const API_TCP_KEEPALIVE: Duration = Duration::from_secs(60);
 const API_RETRY_ATTEMPTS: usize = 2;
+const API_STREAM_READ_RETRIES: usize = 3;
+const API_STREAM_RETRY_DELAY: Duration = Duration::from_secs(1);
 
 pub async fn complete(
     runtime: ProviderRuntime,
@@ -226,39 +228,94 @@ where
     T: Serialize,
     F: FnMut(String),
 {
-    let mut response = open_stream_with_retry(runtime, path, request).await?;
+    let mut last_error = String::new();
+    for retry in 0..=API_STREAM_READ_RETRIES {
+        match send_stream_once(runtime, path, request, &mut on_delta).await {
+            Ok(content) => return Ok(content),
+            Err(error) if retry < API_STREAM_READ_RETRIES && error.retryable => {
+                last_error = error.message;
+                tokio::time::sleep(API_STREAM_RETRY_DELAY).await;
+            }
+            Err(error) => return Err(error.message),
+        }
+    }
+    Err(last_error)
+}
+
+async fn send_stream_once<T, F>(
+    runtime: &ProviderRuntime,
+    path: &str,
+    request: &T,
+    on_delta: &mut F,
+) -> Result<String, StreamReadError>
+where
+    T: Serialize,
+    F: FnMut(String),
+{
+    let mut response = open_stream_with_retry(runtime, path, request)
+        .await
+        .map_err(StreamReadError::fatal)?;
 
     let mut pending_bytes = Vec::new();
     let mut pending = String::new();
     let mut output = String::new();
-    while let Some(chunk) = tokio::time::timeout(API_STREAM_IDLE_TIMEOUT, response.chunk())
-        .await
-        .map_err(|_| "api stream read timed out".to_string())?
-        .map_err(|error| format!("api stream read failed: {error}"))?
-    {
+    loop {
+        let chunk = match tokio::time::timeout(API_STREAM_IDLE_TIMEOUT, response.chunk()).await {
+            Ok(Ok(Some(chunk))) => chunk,
+            Ok(Ok(None)) => break,
+            Ok(Err(error)) => {
+                return Err(StreamReadError::fatal(format!("api stream read failed: {error}")))
+            }
+            Err(_) if output.is_empty() => {
+                return Err(StreamReadError::retryable("api stream read timed out"))
+            }
+            Err(_) => return Err(StreamReadError::fatal("api stream read timed out")),
+        };
+
         pending_bytes.extend_from_slice(&chunk);
-        flush_utf8_prefix(&mut pending_bytes, &mut pending)?;
+        flush_utf8_prefix(&mut pending_bytes, &mut pending).map_err(StreamReadError::fatal)?;
         normalize_newlines(&mut pending);
         while let Some(event) = next_sse_event(&mut pending) {
-            handle_sse_event(&event, &mut output, &mut on_delta)?;
+            handle_sse_event(&event, &mut output, on_delta).map_err(StreamReadError::fatal)?;
         }
     }
 
     if !pending_bytes.is_empty() {
-        flush_utf8_prefix(&mut pending_bytes, &mut pending)?;
+        flush_utf8_prefix(&mut pending_bytes, &mut pending).map_err(StreamReadError::fatal)?;
         if !pending_bytes.is_empty() {
-            return Err("api stream ended with incomplete utf-8".into());
+            return Err(StreamReadError::fatal("api stream ended with incomplete utf-8"));
         }
     }
     if !pending.trim().is_empty() {
-        handle_sse_event(&pending, &mut output, &mut on_delta)?;
+        handle_sse_event(&pending, &mut output, on_delta).map_err(StreamReadError::fatal)?;
     }
 
     let content = output.trim().to_owned();
     if content.is_empty() {
-        return Err("stream response had no assistant content".into());
+        return Err(StreamReadError::fatal("stream response had no assistant content"));
     }
     Ok(content)
+}
+
+struct StreamReadError {
+    message: String,
+    retryable: bool,
+}
+
+impl StreamReadError {
+    fn retryable(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            retryable: true,
+        }
+    }
+
+    fn fatal(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            retryable: false,
+        }
+    }
 }
 
 fn request_builder<T: Serialize>(
