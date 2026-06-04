@@ -15,13 +15,13 @@
 
 | Platform | Command |
 |---|---|
-| Arch / Linux tar | `curl -fsSL https://github.com/CorneliusTantius/sandevistan-ai/releases/latest/download/sandevistan-1.2.2.tar.gz -o sandevistan.tar.gz && tar -xzf sandevistan.tar.gz && cd sandevistan && ./install.sh` |
-| Debian / Ubuntu | `curl -fsSL https://github.com/CorneliusTantius/sandevistan-ai/releases/latest/download/sandevistan-1.2.2-x86.deb -o sandevistan.deb && sudo apt install ./sandevistan.deb` |
-| Fedora / RHEL | `curl -fsSL https://github.com/CorneliusTantius/sandevistan-ai/releases/latest/download/sandevistan-1.2.2-x86.rpm -o sandevistan.rpm && sudo dnf install ./sandevistan.rpm` |
-| Windows EXE | `winget install --id GitHub.cli && gh release download -R CorneliusTantius/sandevistan-ai -p "sandevistan-*-win.exe" && .\\sandevistan-*-win.exe` |
-| Windows MSI | `winget install --id GitHub.cli && gh release download -R CorneliusTantius/sandevistan-ai -p "sandevistan-*-win.msi" && msiexec /i sandevistan-*-win.msi` |
-| macOS Intel | `curl -L https://github.com/CorneliusTantius/sandevistan-ai/releases/latest/download/sandevistan-1.2.2-mac-intel.dmg -o sandevistan.dmg && open sandevistan.dmg` |
-| macOS Apple Silicon | `curl -L https://github.com/CorneliusTantius/sandevistan-ai/releases/latest/download/sandevistan-1.2.2-mac-arm.dmg -o sandevistan.dmg && open sandevistan.dmg` |
+| Arch / Linux tar | <code>url=$(curl -fsSL https://api.github.com/repos/CorneliusTantius/sandevistan-ai/releases/latest &#124; grep -Eo 'https://[^\"]+sandevistan-[^\"]+\.tar\.gz' &#124; head -n1) && curl -fsSL "$url" -o sandevistan.tar.gz && tar -xzf sandevistan.tar.gz && cd sandevistan && ./install.sh</code> |
+| Debian / Ubuntu | <code>url=$(curl -fsSL https://api.github.com/repos/CorneliusTantius/sandevistan-ai/releases/latest &#124; grep -Eo 'https://[^\"]+sandevistan-[^\"]+-x86\.deb' &#124; head -n1) && curl -fsSL "$url" -o sandevistan.deb && sudo apt install ./sandevistan.deb</code> |
+| Fedora / RHEL | <code>url=$(curl -fsSL https://api.github.com/repos/CorneliusTantius/sandevistan-ai/releases/latest &#124; grep -Eo 'https://[^\"]+sandevistan-[^\"]+-x86\.rpm' &#124; head -n1) && curl -fsSL "$url" -o sandevistan.rpm && sudo dnf install ./sandevistan.rpm</code> |
+| Windows EXE | <code>winget install --id GitHub.cli && gh release download -R CorneliusTantius/sandevistan-ai -p "sandevistan-*-win.exe" && .\sandevistan-*-win.exe</code> |
+| Windows MSI | <code>winget install --id GitHub.cli && gh release download -R CorneliusTantius/sandevistan-ai -p "sandevistan-*-win.msi" && msiexec /i sandevistan-*-win.msi</code> |
+| macOS Intel | <code>url=$(curl -fsSL https://api.github.com/repos/CorneliusTantius/sandevistan-ai/releases/latest &#124; grep -Eo 'https://[^\"]+sandevistan-[^\"]+-mac-intel\.dmg' &#124; head -n1) && curl -L "$url" -o sandevistan.dmg && open sandevistan.dmg</code> |
+| macOS Apple Silicon | <code>url=$(curl -fsSL https://api.github.com/repos/CorneliusTantius/sandevistan-ai/releases/latest &#124; grep -Eo 'https://[^\"]+sandevistan-[^\"]+-mac-arm\.dmg' &#124; head -n1) && curl -L "$url" -o sandevistan.dmg && open sandevistan.dmg</code> |
 
 ## Tech Stack
 
