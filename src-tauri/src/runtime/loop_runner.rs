@@ -75,10 +75,15 @@ impl AgentRuntime {
     ) -> Result<AgentRunResult, AgentRuntimeError> {
         (config.on_event)(AgentEvent::AgentStart);
 
-        let system_prompt = config
+        let mut system_prompt = config
             .system_prompt
             .clone()
             .unwrap_or_else(|| context::system_prompt(&config.mods));
+        let extension_prompt = crate::extensions::system_prompt(&config.workspace);
+        if !extension_prompt.trim().is_empty() {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(&extension_prompt);
+        }
         let prompt = context::build_prompt(
             &system_prompt,
             config.summary.as_deref(),

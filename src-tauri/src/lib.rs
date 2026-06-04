@@ -2,6 +2,7 @@ mod agent;
 mod ai;
 mod command_utils;
 mod context;
+mod extensions;
 mod files;
 mod provider;
 mod runtime;
