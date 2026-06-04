@@ -610,7 +610,10 @@ async fn run_agent_loop(
 
         let content = stream_result.assistant_content();
         if content.trim().is_empty() && stream_result.saw_tool_result {
-            return Ok(messages);
+            return Err(AgentLoopError::new(
+                "model emitted only hidden tool-result markup; stopping to avoid silent loop",
+                &messages,
+            ));
         }
         if !stream_result.streamed {
             emit_stream_start(app, session_id);
