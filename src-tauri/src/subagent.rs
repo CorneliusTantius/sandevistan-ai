@@ -6,15 +6,13 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::{future::Future, path::PathBuf, pin::Pin, time::Duration};
 
-const MAX_TASKS: usize = 4;
+const MAX_TASKS: usize = 5;
 const MAX_TASK_CHARS: usize = 4_000;
 const MAX_RESULT_CHARS: usize = 6_000;
 const MAX_TOOL_LOOPS: usize = 3;
 const DEFAULT_MAX_DELEGATE_DEPTH: usize = 1;
 const SUBAGENT_TIMEOUT: Duration = Duration::from_secs(180);
-const SUBAGENT_RETRIES: usize = 3;
-const SUBAGENT_RETRY_DELAY: Duration = Duration::from_secs(1);
-const SUBAGENT_STAGGER: Duration = Duration::from_millis(350);
+const SUBAGENT_STAGGER: Duration = Duration::from_millis(500);
 const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Deserialize)]
@@ -134,41 +132,27 @@ async fn run_one(
         );
     };
 
-    for retry in 0..=SUBAGENT_RETRIES {
-        let future = run_one_inner(
-            workspace.clone(),
-            &def,
-            &task,
-            &mods,
-            rtk_enabled,
-            depth_remaining,
-        );
-        match tokio::time::timeout(SUBAGENT_TIMEOUT, future).await {
-            Ok(Ok(output)) => {
-                return format!(
-                    "[subagent {}]\nstatus: ok\n{}",
-                    def.name,
-                    truncate(&output, def.max_result_chars.unwrap_or(MAX_RESULT_CHARS))
-                )
-            }
-            Ok(Err(error)) => {
-                return format!("[subagent {}]\nstatus: failed\nerror: {error}", def.name)
-            }
-            Err(_) if retry < SUBAGENT_RETRIES => {
-                tokio::time::sleep(SUBAGENT_RETRY_DELAY).await;
-            }
-            Err(_) => {
-                return format!(
-                    "[subagent {}]\nstatus: failed\nerror: timed out after {}s after {} retries",
-                    def.name,
-                    SUBAGENT_TIMEOUT.as_secs(),
-                    SUBAGENT_RETRIES
-                )
-            }
-        }
+    let future = run_one_inner(
+        workspace.clone(),
+        &def,
+        &task,
+        &mods,
+        rtk_enabled,
+        depth_remaining,
+    );
+    match tokio::time::timeout(SUBAGENT_TIMEOUT, future).await {
+        Ok(Ok(output)) => format!(
+            "[subagent {}]\nstatus: ok\n{}",
+            def.name,
+            truncate(&output, def.max_result_chars.unwrap_or(MAX_RESULT_CHARS))
+        ),
+        Ok(Err(error)) => format!("[subagent {}]\nstatus: failed\nerror: {error}", def.name),
+        Err(_) => format!(
+            "[subagent {}]\nstatus: failed\nerror: timed out after {}s",
+            def.name,
+            SUBAGENT_TIMEOUT.as_secs()
+        ),
     }
-
-    format!("[subagent {}]\nstatus: failed\nerror: timed out", def.name)
 }
 
 async fn run_one_inner(

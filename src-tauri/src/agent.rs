@@ -751,8 +751,10 @@ impl ToolCallStreamDetector {
         let saw_tool_result = strip_tool_result_blocks(&mut text);
         self.saw_tool_result |= saw_tool_result;
         if !text.is_empty() {
-            append_visible_text(&self.visible, &mut text, "");
             self.visible.push_str(&text);
+        }
+        if self.saw_tool_call || self.saw_tool_result {
+            text.clear();
         }
         ToolCallStreamUpdate { text, calls }
     }
@@ -791,13 +793,6 @@ fn strip_tool_result_blocks(text: &mut String) -> bool {
         }
     }
     saw
-}
-
-fn append_visible_text(existing: &str, output: &mut String, value: &str) {
-    if existing.trim().is_empty() && output.trim().is_empty() && value.trim().is_empty() {
-        return;
-    }
-    output.push_str(value);
 }
 
 fn take_stream_thinking(detector: &Arc<Mutex<ToolCallStreamDetector>>) -> Option<String> {
@@ -858,13 +853,15 @@ async fn run_and_record_streamed_tool(
             Ok(())
         }
         Err(error) => {
-            let tool_content = format!("{name}\nstatus: failed\nerror: {error}");
+            let tool_content = format!(
+                "{name}\nstatus: failed\nerror: {error}\nnote: tool failed; do not repeat identical call. answer with current evidence or try a different tool/query."
+            );
             emit_stream_tool(app, session_id, &tool_content);
             messages.push(ChatMessage {
                 role: "tool".into(),
                 content: tool_content,
             });
-            Err(AgentLoopError::new(error, messages))
+            Ok(())
         }
     }
 }

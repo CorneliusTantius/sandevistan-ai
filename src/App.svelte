@@ -527,7 +527,7 @@
       shell_enabled: value.shell_enabled ?? false,
       git_panel_enabled: value.git_panel_enabled ?? true,
       subagents_enabled: value.subagents_enabled ?? true,
-      subagent_max_concurrency: Math.min(4, Math.max(1, Number(value.subagent_max_concurrency) || 3)),
+      subagent_max_concurrency: Math.min(5, Math.max(1, Number(value.subagent_max_concurrency) || 3)),
     };
   }
 
@@ -1362,7 +1362,7 @@
             <label>Profile name<input bind:value={modsProfile} placeholder="default" /></label>
             <label>Main model<SelectBox fit value={modsDraft.main_model} options={mainModelOptions} onChange={(value) => (modsDraft = { ...modsDraft, main_model: value })} /></label>
             <label>Main agent<SelectBox fit value={modsDraft.main_agent} options={mainAgentOptions} onChange={(value) => (modsDraft = { ...modsDraft, main_agent: value })} /></label>
-            <label>Subagent concurrency<input bind:value={modsDraft.subagent_max_concurrency} type="number" min="1" max="4" step="1" /></label>
+            <label>Subagent concurrency<input bind:value={modsDraft.subagent_max_concurrency} type="number" min="1" max="5" step="1" /></label>
             <div class="feature-list compact-feature-list">
               <div class="side-title">profile toggles</div>
               <Checkbox checked={modsDraft.rtk_enabled} label={`rtk: ${config.rtk_available ? (modsDraft.rtk_enabled ? "on" : "off") : "not installed"}`} disabled={!config.rtk_available && !modsDraft.rtk_enabled} onChange={(checked) => (modsDraft = { ...modsDraft, rtk_enabled: checked })} />

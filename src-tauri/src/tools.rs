@@ -125,7 +125,7 @@ pub fn prompt_with_subagents(
         lines.push("Use shell.run for explicit shell/CLI requests. Prefer read-only commands unless user clearly asks for mutations. If RTK is enabled, shell.run executes through rtk.".to_string());
     }
     if subagents_enabled {
-        lines.push("When user asks to ping/run/call subagents, use agent.delegate; never claim no subagents spawned before trying it. Use agent.delegate for parallel research/review/implementation planning; max 4 subagents; you own final answer.".to_string());
+        lines.push("When user asks to ping/run/call subagents, use agent.delegate; never claim no subagents spawned before trying it. Use agent.delegate for parallel research/review/implementation planning; max 5 subagents; you own final answer.".to_string());
     }
     lines.extend([
         "Tool call format; emit one or more blocks when independent reads/searches can run together:".to_string(),

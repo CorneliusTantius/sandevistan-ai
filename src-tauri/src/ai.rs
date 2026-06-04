@@ -956,7 +956,7 @@ fn clean_ui_scale(value: f32) -> f32 {
 }
 
 fn clean_subagent_concurrency(value: usize) -> usize {
-    value.clamp(1, 4)
+    value.clamp(1, 5)
 }
 
 fn clean_subagents(values: Vec<String>) -> Vec<String> {
