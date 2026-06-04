@@ -502,6 +502,12 @@ async fn run_agent_loop(
                 for call in update.calls {
                     let _ = tool_tx_for_delta.send(call);
                 }
+                if update.saw_tool_result {
+                    let _ = tool_tx_for_delta.send(tools::ToolCall {
+                        name: "internal.tool_result_leak".into(),
+                        args: serde_json::json!({}),
+                    });
+                }
                 if update.text.is_empty() {
                     return;
                 }
@@ -521,6 +527,12 @@ async fn run_agent_loop(
                 .finish();
             for call in update.calls {
                 let _ = tool_tx.send(call);
+            }
+            if update.saw_tool_result {
+                let _ = tool_tx.send(tools::ToolCall {
+                    name: "internal.tool_result_leak".into(),
+                    args: serde_json::json!({}),
+                });
             }
             if !update.text.is_empty() {
                 if let Ok(mut has_streamed) = streamed.lock() {
@@ -553,6 +565,9 @@ async fn run_agent_loop(
                 maybe_call = tool_rx.recv() => {
                     match maybe_call {
                         Some(call) => {
+                            if call.name == "internal.tool_result_leak" {
+                                continue;
+                            }
                             let thinking = take_stream_thinking(&stream_detector_for_tools);
                             run_and_record_streamed_tool(
                                 app,
@@ -575,6 +590,9 @@ async fn run_agent_loop(
                         .map_err(|error| AgentLoopError::new(error, &messages))?;
                     stream_result = Some(result);
                     while let Ok(call) = tool_rx.try_recv() {
+                        if call.name == "internal.tool_result_leak" {
+                            continue;
+                        }
                         let thinking = take_stream_thinking(&stream_detector_for_tools);
                         run_and_record_streamed_tool(
                             app,
@@ -651,6 +669,7 @@ struct ToolCallStreamDetector {
 struct ToolCallStreamUpdate {
     text: String,
     calls: Vec<tools::ToolCall>,
+    saw_tool_result: bool,
 }
 
 struct StreamResult {
@@ -738,8 +757,34 @@ impl ToolCallStreamDetector {
         if !text.is_empty() {
             self.visible.push_str(&text);
         }
-        ToolCallStreamUpdate { text, calls }
+        let saw_tool_result = strip_tool_result_blocks(&mut text);
+        ToolCallStreamUpdate {
+            text,
+            calls,
+            saw_tool_result,
+        }
     }
+}
+
+fn strip_tool_result_blocks(text: &mut String) -> bool {
+    let mut saw = false;
+    for (open, close) in [
+        ("<tool_result", "</tool_result>"),
+        ("<tool_results", "</tool_results>"),
+        ("<tool_output", "</tool_output>"),
+        ("<tool_outputs", "</tool_outputs>"),
+    ] {
+        while let Some(start) = text.find(open) {
+            saw = true;
+            let Some(end) = text[start..].find(close) else {
+                text.truncate(start);
+                break;
+            };
+            let end = start + end + close.len();
+            text.replace_range(start..end, "");
+        }
+    }
+    saw
 }
 
 fn append_visible_text(existing: &str, output: &mut String, value: &str) {
