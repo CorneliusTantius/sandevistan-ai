@@ -1,16 +1,14 @@
 use crate::{
-    ai::{self, ChatMessage, ModelMods, SubagentDef},
-    tools::{self, ToolCall, ToolOptions},
+    ai::{ChatMessage, ModelMods, SubagentDef},
+    tools::{self, ToolCall},
 };
 use serde::Deserialize;
 use serde_json::Value;
 use std::{future::Future, path::PathBuf, pin::Pin, time::Duration};
 
-const MAX_TASKS: usize = 5;
-const MAX_TASK_CHARS: usize = 4_000;
+const MAX_TASKS: usize = 8;
+const MAX_TASK_CHARS: usize = 1_000;
 const MAX_RESULT_CHARS: usize = 6_000;
-const MAX_TOOL_LOOPS: usize = 3;
-const DEFAULT_MAX_DELEGATE_DEPTH: usize = 1;
 const SUBAGENT_TIMEOUT: Duration = Duration::from_secs(180);
 const SUBAGENT_STAGGER: Duration = Duration::from_millis(500);
 const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
@@ -31,23 +29,7 @@ pub fn is_delegate(call: &ToolCall) -> bool {
     call.name == "agent.delegate"
 }
 
-pub async fn run_delegate(
-    workspace: PathBuf,
-    args: Value,
-    mods: ModelMods,
-    rtk_enabled: bool,
-) -> String {
-    run_delegate_depth(
-        workspace,
-        args,
-        mods,
-        rtk_enabled,
-        DEFAULT_MAX_DELEGATE_DEPTH,
-    )
-    .await
-}
-
-fn run_delegate_depth(
+pub(crate) fn run_delegate_depth(
     workspace: PathBuf,
     args: Value,
     mods: ModelMods,
@@ -160,37 +142,26 @@ async fn run_one_inner(
     def: &SubagentDef,
     task: &DelegateTask,
     mods: &ModelMods,
-    rtk_enabled: bool,
+    _rtk_enabled: bool,
     depth_remaining: usize,
 ) -> Result<String, String> {
     let task_text = truncate(&task.task, MAX_TASK_CHARS);
-    let tools_prompt = tools::prompt_with_subagents(
-        depth_remaining > 0 && mods.subagents_enabled && !mods.subagents.is_empty(),
-        &mods.subagents,
-        false,
-    );
+    let subagents_available =
+        depth_remaining > 0 && mods.subagents_enabled && !mods.subagents.is_empty();
+    let tools_prompt =
+        tools::native_system_prompt(subagents_available, &mods.subagents, mods.shell_enabled);
     let delegation_rule = if depth_remaining > 0 {
         "- may delegate to subagents when useful; remaining delegate depth: 1"
     } else {
         "- do not delegate; delegate depth exhausted"
     };
     let system = format!(
-        "{}\n\nSubagent role: {}\n{}\nRules:\n- concise findings only\n- use read/search/git tools when needed\n- do not edit files\n{}\n- return final answer only",
+        "{}\n\nSubagent role: {}\n{}\nRules:\n- concise findings only\n- use tools when needed\n{}\n- return final answer only",
         tools_prompt,
         def.name,
         def.system.trim(),
         delegation_rule
     );
-    let mut messages = vec![
-        ChatMessage {
-            role: "system".into(),
-            content: system,
-        },
-        ChatMessage {
-            role: "user".into(),
-            content: format!("Task:\n{task_text}"),
-        },
-    ];
     let model = def
         .model
         .clone()
@@ -198,68 +169,41 @@ async fn run_one_inner(
         .or_else(|| (!mods.subagent_model.trim().is_empty()).then(|| mods.subagent_model.clone()))
         .or_else(|| Some(mods.main_model.clone()));
 
-    for _ in 0..MAX_TOOL_LOOPS {
-        let content = ai::complete_chat_model(messages.clone(), model.clone()).await?;
-        let calls = tools::parse_tool_calls(&content);
-        if calls.is_empty() {
-            return Ok(content.trim().to_string());
-        }
+    let mut subagent_mods = mods.clone();
+    subagent_mods.subagents_enabled = subagents_available;
 
-        for call in calls {
-            let name = call.name.clone();
-            let output = if is_delegate(&call) {
-                if depth_remaining == 0 {
-                    "status: failed\nerror: delegate depth exhausted".into()
-                } else {
-                    Box::pin(run_delegate_depth(
-                        workspace.clone(),
-                        call.args,
-                        mods.clone(),
-                        rtk_enabled,
-                        depth_remaining - 1,
-                    ))
-                    .await
-                }
-            } else {
-                run_read_tool(workspace.clone(), call, rtk_enabled).await
-            };
-            messages.push(ChatMessage {
-                role: "tool".into(),
-                content: format!("{name}\n{output}"),
-            });
-        }
-    }
+    let runtime = crate::runtime::AgentRuntime::new();
+    let result = runtime
+        .run(crate::runtime::AgentRuntimeConfig {
+            workspace,
+            messages: vec![ChatMessage {
+                role: "user".into(),
+                content: format!("Task:\n{task_text}"),
+            }],
+            mods: subagent_mods,
+            prompt_config: crate::context::PromptConfig::from_context_chars(40_000),
+            summary: None,
+            system_prompt: Some(system),
+            model,
+            read_only: false,
+            delegate_depth_remaining: depth_remaining,
+            budgets: crate::runtime::AgentBudgets {
+                tool_timeout: TOOL_TIMEOUT,
+            },
+            cancellation_token: crate::runtime::CancellationToken::new(),
+            on_event: std::sync::Arc::new(|_event| {}),
+        })
+        .await
+        .map_err(|error| error.message)?;
 
-    Err("tool loop limit reached".into())
-}
-
-async fn run_read_tool(workspace: PathBuf, call: ToolCall, rtk_enabled: bool) -> String {
-    if tools::is_mutating(&call) {
-        return "status: failed\nerror: subagents are read-only".into();
-    }
-
-    match tokio::time::timeout(
-        TOOL_TIMEOUT,
-        tauri::async_runtime::spawn_blocking(move || {
-            tools::run_with_options(
-                &workspace,
-                &call,
-                ToolOptions {
-                    rtk_enabled,
-                    shell_enabled: false,
-                },
-            )
-        }),
-    )
-    .await
-    {
-        Ok(Ok(output)) => output,
-        Ok(Err(error)) => format!("status: failed\nerror: subagent tool task failed: {error}"),
-        Err(_) => format!(
-            "status: failed\nerror: subagent tool timed out after {}s",
-            TOOL_TIMEOUT.as_secs()
-        ),
-    }
+    result
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == "assistant")
+        .map(|message| message.content.trim().to_string())
+        .filter(|content| !content.is_empty())
+        .ok_or_else(|| "subagent returned no assistant content".into())
 }
 
 fn configured_subagent_defs(mods: &ModelMods) -> (Vec<SubagentDef>, Option<String>) {

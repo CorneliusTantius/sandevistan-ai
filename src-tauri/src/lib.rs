@@ -4,6 +4,8 @@ mod command_utils;
 mod context;
 mod files;
 mod provider;
+mod runtime;
+mod runtime_wire;
 mod shell;
 mod subagent;
 mod tools;
