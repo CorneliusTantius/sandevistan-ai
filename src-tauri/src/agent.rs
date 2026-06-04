@@ -14,6 +14,7 @@ use tauri::{AppHandle, Emitter};
 
 const CONFIG_DIR_NAME: &str = ".sandevistan";
 const MAX_REPEAT_TOOL_CALLS: usize = 3;
+const MAX_AGENT_TURNS: usize = 40;
 const TOOL_EXECUTION_TIMEOUT: Duration = Duration::from_secs(120);
 const SUMMARY_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -484,7 +485,7 @@ async fn run_agent_loop(
     }
 
     let mut tool_call_counts: HashMap<String, usize> = HashMap::new();
-    loop {
+    for _turn in 0..MAX_AGENT_TURNS {
         let prompt =
             context::build_prompt(&system_prompt, Some(&summary), &messages, &prompt_config);
 
@@ -621,6 +622,11 @@ async fn run_agent_loop(
         });
         return Ok(messages);
     }
+
+    Err(AgentLoopError::new(
+        format!("agent turn limit reached after {MAX_AGENT_TURNS} tool-call turns"),
+        &messages,
+    ))
 }
 
 fn should_ping_subagents(messages: &[ChatMessage], mods: &ai::ModelMods) -> bool {
@@ -733,6 +739,10 @@ impl ToolCallStreamDetector {
 
             let body_start = OPEN.len();
             let Some(close_start) = self.pending[body_start..].find(CLOSE) else {
+                if final_flush {
+                    self.saw_tool_result = true;
+                    self.pending.clear();
+                }
                 break;
             };
             let close_start = body_start + close_start;
@@ -743,7 +753,9 @@ impl ToolCallStreamDetector {
                     self.saw_tool_call = true;
                     calls.push(call);
                 }
-                Err(_) => text.push_str(&self.pending[..block_end]),
+                Err(_) => {
+                    self.saw_tool_result = true;
+                }
             }
             self.pending.drain(..block_end);
         }
@@ -762,7 +774,7 @@ impl ToolCallStreamDetector {
 
 fn hidden_stream_markers() -> &'static [&'static str] {
     &[
-        "<tool_call>",
+        "<tool_call",
         "<tool_call_result",
         "<tool_call_results",
         "<tool_result",
@@ -775,6 +787,7 @@ fn hidden_stream_markers() -> &'static [&'static str] {
 fn strip_tool_result_blocks(text: &mut String) -> bool {
     let mut saw = false;
     for (open, close) in [
+        ("<tool_call", "</tool_call>"),
         ("<tool_call_result", "</tool_call_result>"),
         ("<tool_call_results", "</tool_call_results>"),
         ("<tool_result", "</tool_result>"),
