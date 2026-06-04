@@ -69,6 +69,14 @@ fn ai_delete_subagent(request: ai::DeleteSubagentRequest) -> Result<ai::AiConfig
 }
 
 #[tauri::command]
+fn extensions_info(
+    chat: tauri::State<'_, agent::ChatRuntime>,
+) -> Result<extensions::ExtensionsInfo, String> {
+    let workspace = chat.workspace()?;
+    Ok(extensions::info(&workspace))
+}
+
+#[tauri::command]
 fn chat_session(chat: tauri::State<'_, agent::ChatRuntime>) -> Result<agent::SessionInfo, String> {
     chat.info()
 }
@@ -278,6 +286,7 @@ pub fn run() {
             ai_delete_agent,
             ai_save_subagent,
             ai_delete_subagent,
+            extensions_info,
             chat_session,
             chat_set_workspace,
             chat_delete_workspace,

@@ -34,6 +34,9 @@
   type ThinkingLevel = "auto" | "low" | "medium" | "high";
   type AgentOption = { name: string; description: string; persona: string; thinking_level: ThinkingLevel; prompt_injection: string };
   type SubagentOption = { name: string; description: string; system: string; model: string; max_result_chars: number };
+  type ExtensionInfo = { id: string; name: string; enabled: boolean; removable: boolean; description: string };
+  type SkillInfo = { name: string; description: string; path: string };
+  type ExtensionsInfo = { config_path: string; extensions: ExtensionInfo[]; skills: SkillInfo[] };
   type AiMods = {
     main_model: string;
     main_agent: string;
@@ -149,11 +152,12 @@
   let draft = { provider: "openai", api_base: "https://api.openai.com/v1", model: "gpt-4o-mini", original_model: "", api_key: "", context_chars: 80000 };
   let modsDraft: AiMods = { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" };
   let modsProfile = "default";
-  let modsTab: "general" | "profile" | "models" | "agents" | "subagents" = "profile";
+  let modsTab: "general" | "profile" | "models" | "agents" | "subagents" | "extensions" = "profile";
   let addingAgent = false;
   let addingSubagent = false;
   let agentDraft = { name: "", original_name: "", description: "", persona: "", thinking_level: "auto" as ThinkingLevel, prompt_injection: "" };
   let subagentDraft = { name: "", original_name: "", description: "", system: "", model: "", max_result_chars: 4000 };
+  let extensionsInfo: ExtensionsInfo = { config_path: "", extensions: [], skills: [] };
   $: providerOptions = [
     ...config.providers.map((provider): SelectOption => ({ value: provider.name, label: provider.name })),
     { value: "__new__", label: "+ provider" },
@@ -479,6 +483,15 @@
     return groups;
   }
 
+  async function loadExtensionsInfo() {
+    try {
+      extensionsInfo = await invoke<ExtensionsInfo>("extensions_info");
+    } catch (error) {
+      addMessage("error", String(error));
+      extensionsInfo = { config_path: "", extensions: [], skills: [] };
+    }
+  }
+
   function openConfig() {
     addingModel = false;
     setConfigDraft(config);
@@ -541,6 +554,7 @@
     addingAgent = false;
     addingSubagent = false;
     showMods = true;
+    void loadExtensionsInfo();
   }
 
   function normalizeMods(value: AiMods): AiMods {
@@ -1394,6 +1408,7 @@
           <button class:active={modsTab === "models"} class="ghost" type="button" on:click={() => (modsTab = "models")}>models</button>
           <button class:active={modsTab === "agents"} class="ghost" type="button" on:click={() => (modsTab = "agents")}>agents</button>
           <button class:active={modsTab === "subagents"} class="ghost" type="button" on:click={() => (modsTab = "subagents")}>subagents</button>
+          <button class:active={modsTab === "extensions"} class="ghost" type="button" on:click={() => { modsTab = "extensions"; void loadExtensionsInfo(); }}>extensions</button>
         </nav>
 
         <section class="mods-content">
@@ -1449,7 +1464,7 @@
               <label>Prompt injection<textarea bind:value={agentDraft.prompt_injection} rows="4"></textarea></label>
               <div class="actions right"><button class="ghost" type="button" on:click={() => (addingAgent = false)}>back</button><button type="button" disabled={!agentDraft.name.trim()} on:click={() => void saveAgent()}>save agent</button><button class="ghost danger" type="button" disabled={!agentDraft.original_name || agentDraft.original_name === "custom"} on:click={() => void deleteAgent(agentDraft.original_name)}>delete</button></div>
             {/if}
-          {:else}
+          {:else if modsTab === "subagents"}
             {#if !addingSubagent}
               <ItemList items={subagentItems} addTitle="+ add subagent" addSubtitle="worker definition" onAdd={addSubagent} />
             {:else}
@@ -1460,6 +1475,32 @@
               <label>System<textarea bind:value={subagentDraft.system} rows="6" placeholder="subagent role and rules"></textarea></label>
               <div class="actions right"><button class="ghost" type="button" on:click={() => (addingSubagent = false)}>back</button><button type="button" disabled={!subagentDraft.name.trim() || !subagentDraft.system.trim()} on:click={() => void saveSubagent()}>save subagent</button><button class="ghost danger" type="button" disabled={!subagentDraft.original_name} on:click={() => void deleteSubagent(subagentDraft.original_name)}>delete</button></div>
             {/if}
+          {:else if modsTab === "extensions"}
+            <div class="feature-list compact-feature-list">
+              <div class="side-title">extensions</div>
+              <p class="hint">Config: {extensionsInfo.config_path || "~/.sandevistan/extensions.toml"}</p>
+              {#each extensionsInfo.extensions as extension}
+                <div class="extension-row">
+                  <strong>{extension.name}</strong>
+                  <span class:enabled={extension.enabled}>{extension.enabled ? "enabled" : "disabled"}</span>
+                  <small>{extension.description}</small>
+                </div>
+              {:else}
+                <span class="empty-state">no extensions discovered</span>
+              {/each}
+            </div>
+            <div class="feature-list compact-feature-list">
+              <div class="side-title">skills</div>
+              {#each extensionsInfo.skills as skill}
+                <div class="extension-row" title={skill.path}>
+                  <strong>{skill.name}</strong>
+                  <small>{skill.description}</small>
+                  <small>{skill.path}</small>
+                </div>
+              {:else}
+                <span class="empty-state">no skills discovered</span>
+              {/each}
+            </div>
           {/if}
         </section>
       </div>
