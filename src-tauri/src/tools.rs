@@ -15,10 +15,10 @@ const MAX_WRITE_BYTES: usize = 200_000;
 const MAX_TOOL_OUTPUT_BYTES: usize = 64_000;
 const MAX_SEARCH_RESULTS: usize = 200;
 const MAX_DIFF_BYTES: usize = 200_000;
-const TOOL_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
-const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
-const SHELL_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
-const RTK_REWRITE_TIMEOUT: Duration = Duration::from_secs(5);
+const TOOL_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
+const SHELL_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const RTK_REWRITE_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_SHELL_OUTPUT_BYTES: usize = 120_000;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -85,7 +85,7 @@ const TOOLS: &[ToolDef] = &[
         name: "shell.run",
         description:
             "run shell command in workspace when shell tools are enabled; timeout/capped output",
-        args: r#"{"command":"npm test","timeout_secs":30}"#,
+        args: r#"{"command":"npm test","timeout_secs":120}"#,
     },
 ];
 
@@ -106,7 +106,7 @@ pub fn prompt_with_subagents(
             .map(|tool| format!("- {}: {}. args: {}", tool.name, tool.description, tool.args)),
     );
     if shell_enabled {
-        lines.push("- shell.run: run shell command in workspace when needed. args: {\"command\":\"npm test\",\"timeout_secs\":30}".to_string());
+        lines.push("- shell.run: run shell command in workspace when needed. args: {\"command\":\"npm test\",\"timeout_secs\":120}".to_string());
     }
     if subagents_enabled {
         let names = if subagents.is_empty() {
@@ -230,7 +230,7 @@ fn shell_run(workspace: &Path, args: &Value, options: ToolOptions) -> Result<Str
     let timeout = args
         .get("timeout_secs")
         .and_then(Value::as_u64)
-        .map(|value| value.clamp(1, 60))
+        .map(|value| value.clamp(1, 300))
         .map(Duration::from_secs)
         .unwrap_or(SHELL_COMMAND_TIMEOUT);
 

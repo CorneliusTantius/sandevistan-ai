@@ -11,10 +11,10 @@ const MAX_TASK_CHARS: usize = 4_000;
 const MAX_RESULT_CHARS: usize = 6_000;
 const MAX_TOOL_LOOPS: usize = 3;
 const DEFAULT_MAX_DELEGATE_DEPTH: usize = 1;
-const SUBAGENT_TIMEOUT: Duration = Duration::from_secs(60);
+const SUBAGENT_TIMEOUT: Duration = Duration::from_secs(180);
 const SUBAGENT_RETRIES: usize = 3;
 const SUBAGENT_RETRY_DELAY: Duration = Duration::from_secs(1);
-const TOOL_TIMEOUT: Duration = Duration::from_secs(20);
+const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Deserialize)]
 struct DelegateArgs {

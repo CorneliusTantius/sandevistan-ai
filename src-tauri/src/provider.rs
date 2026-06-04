@@ -57,10 +57,10 @@ struct ApiErrorBody {
     message: Option<String>,
 }
 
-const API_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const API_REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
+const API_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+const API_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 const API_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(45);
-const API_POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+const API_POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(180);
 const API_TCP_KEEPALIVE: Duration = Duration::from_secs(60);
 const API_RETRY_ATTEMPTS: usize = 2;
 const API_STREAM_READ_RETRIES: usize = 3;

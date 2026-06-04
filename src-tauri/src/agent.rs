@@ -14,8 +14,8 @@ use tauri::{AppHandle, Emitter};
 
 const CONFIG_DIR_NAME: &str = ".sandevistan";
 const MAX_REPEAT_TOOL_CALLS: usize = 3;
-const TOOL_EXECUTION_TIMEOUT: Duration = Duration::from_secs(25);
-const SUMMARY_TIMEOUT: Duration = Duration::from_secs(10);
+const TOOL_EXECUTION_TIMEOUT: Duration = Duration::from_secs(120);
+const SUMMARY_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Deserialize)]
 pub struct WorkspaceRequest {

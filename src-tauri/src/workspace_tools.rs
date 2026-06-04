@@ -9,8 +9,8 @@ use std::{
 
 const MAX_SEARCH_RESULTS: usize = 200;
 const MAX_DIFF_BYTES: usize = 200_000;
-const SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
-const GIT_TIMEOUT: Duration = Duration::from_secs(15);
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(60);
+const GIT_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Debug, Deserialize)]
 pub struct ContentSearchRequest {
