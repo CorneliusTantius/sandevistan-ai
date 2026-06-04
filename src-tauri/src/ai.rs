@@ -34,6 +34,11 @@ pub struct FeatureUpdate {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UiScaleUpdate {
+    scale: f32,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ActiveProfileUpdate {
     profile: String,
 }
@@ -71,6 +76,7 @@ pub struct AiConfig {
     agents: Vec<AgentOption>,
     subagents_registry: Vec<SubagentOption>,
     rtk_available: bool,
+    ui_scale: f32,
 }
 
 #[derive(Debug, Serialize)]
@@ -178,6 +184,7 @@ struct AppConfig {
     thinking_level: Option<String>,
     prompt_injection: Option<String>,
     rtk_enabled: Option<bool>,
+    ui_scale: Option<f32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -306,7 +313,18 @@ pub fn config() -> AiConfig {
         agents: agent_options(&agents),
         subagents_registry: subagent_options(&agents),
         rtk_available: rtk_available(),
+        ui_scale: app_ui_scale(),
     }
+}
+
+pub fn set_ui_scale(update: UiScaleUpdate) -> Result<AiConfig, String> {
+    let config_dir = config_dir();
+    ensure_config_files(&config_dir);
+    let path = config_dir.join("config.toml");
+    let mut app = read_toml::<AppConfig>(path.clone());
+    app.ui_scale = Some(clean_ui_scale(update.scale));
+    write_toml(path, &app)?;
+    Ok(config())
 }
 
 pub fn set_active_profile(update: ActiveProfileUpdate) -> Result<AiConfig, String> {
@@ -682,6 +700,14 @@ fn default_features() -> HashMap<String, bool> {
     ])
 }
 
+fn app_ui_scale() -> f32 {
+    clean_ui_scale(
+        read_toml::<AppConfig>(config_dir().join("config.toml"))
+            .ui_scale
+            .unwrap_or(1.0),
+    )
+}
+
 fn runtime_config() -> RuntimeConfig {
     runtime_config_for_model(None)
 }
@@ -922,6 +948,13 @@ fn clean_context_chars(value: usize) -> usize {
     value.clamp(4_000, 1_000_000)
 }
 
+fn clean_ui_scale(value: f32) -> f32 {
+    if !value.is_finite() {
+        return 1.0;
+    }
+    (value * 100.0).round().clamp(70.0, 160.0) / 100.0
+}
+
 fn clean_subagent_concurrency(value: usize) -> usize {
     value.clamp(1, 4)
 }
@@ -1076,10 +1109,25 @@ fn compact_line(value: &str, max: usize) -> String {
 }
 
 fn rtk_available() -> bool {
-    let Some(paths) = env::var_os("PATH") else {
-        return false;
-    };
-    env::split_paths(&paths).any(|path| path.join("rtk").is_file())
+    rtk_path().is_some()
+}
+
+fn rtk_path() -> Option<PathBuf> {
+    env::var_os("PATH")
+        .into_iter()
+        .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
+        .chain(rtk_fallback_dirs())
+        .map(|path| path.join("rtk"))
+        .find(|path| path.is_file())
+}
+
+fn rtk_fallback_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join(".cargo/bin"));
+    }
+    dirs
 }
 
 fn env_value(key: &str) -> Option<String> {

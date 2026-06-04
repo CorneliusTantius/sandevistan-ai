@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
+export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
 export WEBKIT_DISABLE_DMABUF_RENDERER="${WEBKIT_DISABLE_DMABUF_RENDERER:-1}"
 export WEBKIT_DISABLE_COMPOSITING_MODE="${WEBKIT_DISABLE_COMPOSITING_MODE:-1}"
 exec "@PREFIX@/share/sandevistan/sandevistan-bin" "$@"

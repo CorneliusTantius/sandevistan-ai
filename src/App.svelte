@@ -64,6 +64,7 @@
     agents: AgentOption[];
     subagents_registry: SubagentOption[];
     rtk_available: boolean;
+    ui_scale: number;
   };
 
   const emptyConfig: AiConfig = {
@@ -83,6 +84,7 @@
     agents: [{ name: "custom", description: "Default main agent", persona: "", thinking_level: "auto", prompt_injection: "" }],
     subagents_registry: [],
     rtk_available: false,
+    ui_scale: 1,
   };
 
   let modelLabel = "model";
@@ -132,6 +134,7 @@
   let renameSessionId = "";
   let renameDraft = "";
   let config: AiConfig = emptyConfig;
+  let uiScale = 1;
   let providerChoice = "openai";
   let draft = { provider: "openai", api_base: "https://api.openai.com/v1", model: "gpt-4o-mini", original_model: "", api_key: "", context_chars: 80000 };
   let modsDraft: AiMods = { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" };
@@ -236,6 +239,27 @@
     draft = { provider: value.provider, api_base: value.api_base, model: value.model, original_model: value.model, api_key: "", context_chars: value.context_chars || 80000 };
     modsDraft = { ...value.mods };
     modsProfile = value.active_profile || "default";
+    applyUiScale(value.ui_scale || 1);
+  }
+
+  function applyUiScale(scale: number) {
+    uiScale = clampScale(scale);
+    document.body.style.zoom = String(uiScale);
+  }
+
+  function clampScale(scale: number) {
+    return Math.round(Math.min(1.6, Math.max(0.7, scale)) * 100) / 100;
+  }
+
+  async function setUiScale(scale: number) {
+    const next = clampScale(scale);
+    applyUiScale(next);
+    try {
+      config = await invoke<AiConfig>("ai_set_ui_scale", { update: { scale: next } });
+      applyUiScale(config.ui_scale || next);
+    } catch (error) {
+      addMessage("error", String(error));
+    }
   }
 
   function formatContext(value: number) {
@@ -1013,6 +1037,15 @@
     }
   }
 
+  function globalKeydown(event: KeyboardEvent) {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key !== "+" && key !== "=" && key !== "-" && key !== "_") return;
+    event.preventDefault();
+    const delta = key === "-" || key === "_" ? -0.05 : 0.05;
+    void setUiScale(uiScale + delta);
+  }
+
   $: if (messages.length) void scrollChatToBottom();
 
   onMount(() => {
@@ -1021,6 +1054,7 @@
     void listen<ChatStreamEvent>("chat_stream", (event) => handleStream(event.payload))
       .then((value) => (unlistenChat = value))
       .catch((error) => addMessage("error", String(error)));
+    window.addEventListener("keydown", globalKeydown);
     void listen<FileChangedEvent>("file_changed", (event) => handleFileChanged(event.payload))
       .then((value) => (unlistenFiles = value))
       .catch((error) => addMessage("error", String(error)));
@@ -1043,6 +1077,7 @@
       window.clearInterval(poll);
       if (streamFrame) cancelAnimationFrame(streamFrame);
       if (fileChangeTimer) window.clearTimeout(fileChangeTimer);
+      window.removeEventListener("keydown", globalKeydown);
       void invoke("file_watch_stop");
       unlistenChat?.();
       unlistenFiles?.();
