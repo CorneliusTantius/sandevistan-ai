@@ -680,7 +680,17 @@
     return items.filter((message) => message.role === "tool" && /(^|\n)(edited|wrote)\s/.test(message.content)).length;
   }
 
+  function resetStreamState() {
+    if (streamFrame) {
+      cancelAnimationFrame(streamFrame);
+      streamFrame = 0;
+    }
+    streamBuffer = "";
+    streamMessageOpen = false;
+  }
+
   function setSession(session: SessionInfo) {
+    resetStreamState();
     workspace = session.workspace;
     workspaceDraft = session.workspace;
     workspaces = session.workspaces;
