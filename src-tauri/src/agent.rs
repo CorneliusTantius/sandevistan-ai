@@ -502,12 +502,6 @@ async fn run_agent_loop(
                 for call in update.calls {
                     let _ = tool_tx_for_delta.send(call);
                 }
-                if update.saw_tool_result {
-                    let _ = tool_tx_for_delta.send(tools::ToolCall {
-                        name: "internal.tool_result_leak".into(),
-                        args: serde_json::json!({}),
-                    });
-                }
                 if update.text.is_empty() {
                     return;
                 }
@@ -527,12 +521,6 @@ async fn run_agent_loop(
                 .finish();
             for call in update.calls {
                 let _ = tool_tx.send(call);
-            }
-            if update.saw_tool_result {
-                let _ = tool_tx.send(tools::ToolCall {
-                    name: "internal.tool_result_leak".into(),
-                    args: serde_json::json!({}),
-                });
             }
             if !update.text.is_empty() {
                 if let Ok(mut has_streamed) = streamed.lock() {
@@ -555,6 +543,7 @@ async fn run_agent_loop(
                 content,
                 visible_content: detector.visible_content(),
                 saw_tool_call: detector.saw_tool_call,
+                saw_tool_result: detector.saw_tool_result,
                 streamed,
             })
         });
@@ -565,9 +554,6 @@ async fn run_agent_loop(
                 maybe_call = tool_rx.recv() => {
                     match maybe_call {
                         Some(call) => {
-                            if call.name == "internal.tool_result_leak" {
-                                continue;
-                            }
                             let thinking = take_stream_thinking(&stream_detector_for_tools);
                             run_and_record_streamed_tool(
                                 app,
@@ -590,9 +576,6 @@ async fn run_agent_loop(
                         .map_err(|error| AgentLoopError::new(error, &messages))?;
                     stream_result = Some(result);
                     while let Ok(call) = tool_rx.try_recv() {
-                        if call.name == "internal.tool_result_leak" {
-                            continue;
-                        }
                         let thinking = take_stream_thinking(&stream_detector_for_tools);
                         run_and_record_streamed_tool(
                             app,
@@ -618,6 +601,9 @@ async fn run_agent_loop(
         }
 
         let content = stream_result.assistant_content();
+        if content.trim().is_empty() && stream_result.saw_tool_result {
+            return Ok(messages);
+        }
         if !stream_result.streamed {
             emit_stream_start(app, session_id);
             emit_stream_delta(app, session_id, &content);
@@ -664,28 +650,29 @@ struct ToolCallStreamDetector {
     pending: String,
     visible: String,
     saw_tool_call: bool,
+    saw_tool_result: bool,
 }
 
 struct ToolCallStreamUpdate {
     text: String,
     calls: Vec<tools::ToolCall>,
-    saw_tool_result: bool,
 }
 
 struct StreamResult {
     content: String,
     visible_content: String,
     saw_tool_call: bool,
+    saw_tool_result: bool,
     streamed: bool,
 }
 
 impl StreamResult {
     fn assistant_content(&self) -> String {
         let visible = self.visible_content.trim().to_string();
-        if visible.is_empty() {
-            self.content.clone()
-        } else {
+        if !visible.is_empty() || self.saw_tool_result {
             visible
+        } else {
+            self.content.clone()
         }
     }
 }
@@ -722,17 +709,17 @@ impl ToolCallStreamDetector {
                 let emit_len = if final_flush {
                     self.pending.len()
                 } else {
-                    safe_plain_prefix_len(&self.pending, OPEN)
+                    safe_plain_prefix_len_any(&self.pending, hidden_stream_markers())
                 };
                 if emit_len > 0 {
-                    append_visible_text(&self.visible, &mut text, &self.pending[..emit_len]);
+                    text.push_str(&self.pending[..emit_len]);
                     self.pending.drain(..emit_len);
                 }
                 break;
             };
 
             if start > 0 {
-                append_visible_text(&self.visible, &mut text, &self.pending[..start]);
+                text.push_str(&self.pending[..start]);
                 self.pending.drain(..start);
                 continue;
             }
@@ -749,26 +736,38 @@ impl ToolCallStreamDetector {
                     self.saw_tool_call = true;
                     calls.push(call);
                 }
-                Err(_) => append_visible_text(&self.visible, &mut text, &self.pending[..block_end]),
+                Err(_) => text.push_str(&self.pending[..block_end]),
             }
             self.pending.drain(..block_end);
         }
 
+        let saw_tool_result = strip_tool_result_blocks(&mut text);
+        self.saw_tool_result |= saw_tool_result;
         if !text.is_empty() {
+            append_visible_text(&self.visible, &mut text, "");
             self.visible.push_str(&text);
         }
-        let saw_tool_result = strip_tool_result_blocks(&mut text);
-        ToolCallStreamUpdate {
-            text,
-            calls,
-            saw_tool_result,
-        }
+        ToolCallStreamUpdate { text, calls }
     }
+}
+
+fn hidden_stream_markers() -> &'static [&'static str] {
+    &[
+        "<tool_call>",
+        "<tool_call_result",
+        "<tool_call_results",
+        "<tool_result",
+        "<tool_results",
+        "<tool_output",
+        "<tool_outputs",
+    ]
 }
 
 fn strip_tool_result_blocks(text: &mut String) -> bool {
     let mut saw = false;
     for (open, close) in [
+        ("<tool_call_result", "</tool_call_result>"),
+        ("<tool_call_results", "</tool_call_results>"),
         ("<tool_result", "</tool_result>"),
         ("<tool_results", "</tool_results>"),
         ("<tool_output", "</tool_output>"),
@@ -815,11 +814,15 @@ fn tool_content_with_thinking(content: String, thinking: Option<&str>) -> String
     }
 }
 
-fn safe_plain_prefix_len(value: &str, marker: &str) -> usize {
+fn safe_plain_prefix_len_any(value: &str, markers: &[&str]) -> usize {
     let mut keep = 0;
-    for index in 1..=value.len().min(marker.len() - 1) {
-        if value.is_char_boundary(value.len() - index) && marker.starts_with(&value[value.len() - index..]) {
-            keep = index;
+    for marker in markers {
+        for index in 1..=value.len().min(marker.len() - 1) {
+            if value.is_char_boundary(value.len() - index)
+                && marker.starts_with(&value[value.len() - index..])
+            {
+                keep = keep.max(index);
+            }
         }
     }
     value.len() - keep
