@@ -103,16 +103,17 @@
   let DiffPaneComponent: any = null;
   let TerminalPaneComponent: any = null;
   let messages: Message[] = [];
+  let messageGroupLimit = 80;
   let messagesEl: HTMLDivElement;
   let streamBuffer = "";
   let streamFrame = 0;
   let fileChangeTimer = 0;
   let streamMessageOpen = false;
   let files: FileEntry[] = [];
-  let fileIndex: FileEntry[] = [];
-  let fileIndexLoaded = false;
-  let fileIndexing = false;
-  let fileIndexTimer = 0;
+  let fileSearchResults: FileEntry[] = [];
+  let fileSearching = false;
+  let fileSearchTimer = 0;
+  let fileSearchTruncated = false;
   let expandedDirs = new Set<string>();
   let loadedDirs = new Set<string>();
   let fileTreeVersion = 0;
@@ -222,9 +223,11 @@
     return !query || session.title.toLowerCase().includes(query) || session.preview.toLowerCase().includes(query);
   });
   $: searchingFiles = Boolean(fileQuery.trim());
-  $: visibleFiles = searchingFiles ? searchIndex(fileIndex, fileQuery) : filterFiles(files, expandedDirs, fileQuery);
+  $: visibleFiles = searchingFiles ? fileSearchResults : filterFiles(files, expandedDirs, "");
   $: expandedFilePaths = searchingFiles ? visibleFiles.filter((file) => file.kind === "dir").map((file) => norm(file.path)) : [...expandedDirs];
   $: messageGroups = groupMessages(messages);
+  $: hiddenMessageGroupCount = Math.max(0, messageGroups.length - messageGroupLimit);
+  $: visibleMessageGroups = hiddenMessageGroupCount > 0 ? messageGroups.slice(hiddenMessageGroupCount) : messageGroups;
   $: activeSessionRunning = sessions.find((session) => session.id === activeSessionId)?.running ?? false;
   $: featureContentSearch = config.features?.content_search ?? true;
   $: featureGit = config.features?.git ?? true;
@@ -443,6 +446,14 @@
   async function scrollChatToBottom() {
     await tick();
     if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function showEarlierMessages() {
+    messageGroupLimit += 80;
+  }
+
+  function isStreamingMessage(group: MessageGroup) {
+    return streamMessageOpen && activeSessionRunning && group.kind === "message" && group.key === `message-${messages.length - 1}` && group.message.role === "assistant";
   }
 
   function groupMessages(items: Message[]): MessageGroup[] {
@@ -677,6 +688,7 @@
     sessions = session.sessions;
     sessionLabel = session.sessions.find((item) => item.id === session.active_session_id)?.title ?? "session";
     messages = session.messages;
+    messageGroupLimit = 80;
   }
 
   function markActiveSessionRunning(running: boolean) {
@@ -694,35 +706,44 @@
 
   async function loadFiles() {
     files = await invoke<FileEntry[]>("workspace_tree");
-    fileIndex = [];
-    fileIndexLoaded = false;
+    fileSearchResults = [];
+    fileSearchTruncated = false;
     expandedDirs = new Set();
     loadedDirs = new Set();
     fileTreeVersion += 1;
   }
 
-  async function ensureFileIndex() {
-    if (fileIndexLoaded || fileIndexing) return;
-    fileIndexing = true;
-    try {
-      fileIndex = await invoke<FileEntry[]>("workspace_index");
-      fileIndexLoaded = true;
-    } catch (error) {
-      addMessage("error", String(error));
-      fileIndex = [];
-    } finally {
-      fileIndexing = false;
-    }
-  }
-
   function inputFileQuery(event: Event) {
     fileQuery = (event.currentTarget as HTMLInputElement).value;
-    if (fileIndexTimer) window.clearTimeout(fileIndexTimer);
-    if (!fileQuery.trim() || fileIndexLoaded) return;
-    fileIndexTimer = window.setTimeout(() => {
-      fileIndexTimer = 0;
-      void ensureFileIndex();
-    }, 250);
+    if (fileSearchTimer) window.clearTimeout(fileSearchTimer);
+    const query = fileQuery.trim();
+    if (!query) {
+      fileSearchResults = [];
+      fileSearchTruncated = false;
+      fileSearching = false;
+      return;
+    }
+    fileSearching = true;
+    fileSearchTimer = window.setTimeout(() => {
+      fileSearchTimer = 0;
+      void runFileSearch(query);
+    }, 150);
+  }
+
+  async function runFileSearch(query: string) {
+    try {
+      const results = await invoke<FileEntry[]>("workspace_search", { request: { query } });
+      if (fileQuery.trim() !== query) return;
+      fileSearchTruncated = results.length > 500;
+      fileSearchResults = results.slice(0, 500);
+    } catch (error) {
+      if (fileQuery.trim() === query) {
+        fileSearchResults = [];
+        addMessage("error", String(error));
+      }
+    } finally {
+      if (fileQuery.trim() === query) fileSearching = false;
+    }
   }
 
   async function runContentSearch() {
@@ -823,25 +844,6 @@
       return !query || file.name.toLowerCase().includes(query) || file.path.toLowerCase().includes(query);
     });
   }
-
-  function searchIndex(items: FileEntry[], queryText: string) {
-    const query = queryText.trim().toLowerCase();
-    if (!query) return [];
-
-    const paths = new Set<string>();
-    for (const file of items) {
-      if (!file.name.toLowerCase().includes(query) && !file.path.toLowerCase().includes(query)) continue;
-      paths.add(norm(file.path));
-      let parent = parentPath(file.path);
-      while (parent) {
-        paths.add(parent);
-        parent = parentPath(parent);
-      }
-    }
-
-    return items.filter((file) => paths.has(norm(file.path)));
-  }
-
 
   function isChildOf(file: FileEntry, dir: FileEntry) {
     return file.depth === dir.depth + 1 && isDescendantPath(file.path, dir.path);
@@ -1161,7 +1163,7 @@
       window.clearInterval(poll);
       if (streamFrame) cancelAnimationFrame(streamFrame);
       if (fileChangeTimer) window.clearTimeout(fileChangeTimer);
-      if (fileIndexTimer) window.clearTimeout(fileIndexTimer);
+      if (fileSearchTimer) window.clearTimeout(fileSearchTimer);
       window.removeEventListener("keydown", globalKeydown);
       void invoke("file_watch_stop");
       unlistenChat?.();
@@ -1205,8 +1207,9 @@
 
         {#if sideTab === "files"}
           <input class="side-search" value={fileQuery} on:input={inputFileQuery} placeholder="search" />
-          {#if fileIndexing}<span class="empty-state">indexing...</span>{/if}
-          {#key `${workspace}:${fileTreeVersion}:${fileIndexLoaded}`}
+          {#if fileSearching}<span class="empty-state">searching...</span>{/if}
+          {#if fileSearchTruncated}<span class="empty-state">showing first 500 matches</span>{/if}
+          {#key `${workspace}:${fileTreeVersion}:${searchingFiles ? fileQuery : "tree"}`}
             <FileTree entries={visibleFiles} expandedPaths={expandedFilePaths} onOpen={openFile} />
           {/key}
         {:else if sideTab === "content" && featureContentSearch}
@@ -1294,9 +1297,12 @@
       {#if activeTab === "chat" && chatOpen}
       <section class="chat" aria-label="AI chat">
         <div class="messages" bind:this={messagesEl}>
-          {#each messageGroups as group (group.key)}
+          {#if hiddenMessageGroupCount > 0}
+            <button class="ghost show-earlier" type="button" on:click={showEarlierMessages}>show {Math.min(80, hiddenMessageGroupCount)} earlier ({hiddenMessageGroupCount} hidden)</button>
+          {/if}
+          {#each visibleMessageGroups as group (group.key)}
             {#if group.kind === "message"}
-              <MessageView role={group.message.role} content={group.message.content} />
+              <MessageView role={group.message.role} content={group.message.content} streaming={isStreamingMessage(group)} />
             {:else}
               <ToolGroup tools={group.tools} />
             {/if}

@@ -452,6 +452,12 @@ h2 {
   background: var(--panel);
 }
 
+.show-earlier {
+  width: fit-content;
+  justify-self: center;
+  font-size: 12px;
+}
+
 .prompt-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto;
