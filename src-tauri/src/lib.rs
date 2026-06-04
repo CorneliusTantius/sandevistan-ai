@@ -105,6 +105,14 @@ fn extensions_create_rust(
 }
 
 #[tauri::command]
+fn extensions_info(
+    chat: tauri::State<'_, agent::ChatRuntime>,
+) -> Result<extensions::ExtensionsInfo, String> {
+    let workspace = chat.workspace()?;
+    Ok(extensions::info(&workspace))
+}
+
+#[tauri::command]
 fn chat_session(chat: tauri::State<'_, agent::ChatRuntime>) -> Result<agent::SessionInfo, String> {
     chat.info()
 }
