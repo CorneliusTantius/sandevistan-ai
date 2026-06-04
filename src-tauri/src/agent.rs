@@ -595,25 +595,11 @@ async fn run_agent_loop(
         let Some(stream_result) = stream_result else {
             return Err(AgentLoopError::new("stream ended without result", &messages));
         };
-        let content = if stream_result.saw_tool_call {
-            stream_result.visible_content.trim().to_string()
-        } else {
-            stream_result.assistant_content()
-        };
         if stream_result.saw_tool_call {
-            if content.trim().is_empty() {
-                continue;
-            }
-            if !stream_result.streamed {
-                emit_stream_start(app, session_id);
-                emit_stream_delta(app, session_id, &content);
-            }
-            messages.push(ChatMessage {
-                role: "assistant".into(),
-                content,
-            });
-            return Ok(messages);
+            continue;
         }
+
+        let content = stream_result.assistant_content();
         if !stream_result.streamed {
             emit_stream_start(app, session_id);
             emit_stream_delta(app, session_id, &content);
