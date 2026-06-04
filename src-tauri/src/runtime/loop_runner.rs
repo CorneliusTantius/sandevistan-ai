@@ -15,7 +15,7 @@ use super::{
     events::AgentEvent,
     messages::chat_to_agent_messages,
     tool_exec,
-    types::{to_native_messages, AgentMessage, AgentRole},
+    types::{to_native_message_refs, AgentMessage, AgentRole},
 };
 
 pub type AgentEventSink = Arc<dyn Fn(AgentEvent) + Send + Sync>;
@@ -107,7 +107,7 @@ impl AgentRuntime {
             let sink = config.on_event.clone();
             let streamed_for_delta = streamed.clone();
             let turn = ai::complete_native_stream_model(
-                to_native_messages(&turn_messages),
+                to_native_message_refs(&turn_messages),
                 native_tools.clone(),
                 config
                     .model
@@ -240,23 +240,23 @@ impl AgentRuntime {
     }
 }
 
-fn context_window(
-    messages: &[AgentMessage],
+fn context_window<'a>(
+    messages: &'a [AgentMessage],
     prompt_config: &prompt_context::PromptConfig,
-) -> Vec<AgentMessage> {
+) -> Vec<&'a AgentMessage> {
     let mut system = Vec::new();
     let mut rest = Vec::new();
     for message in messages {
         if matches!(message.role, AgentRole::System) {
-            system.push(message.clone());
+            system.push(message);
         } else {
-            rest.push(message.clone());
+            rest.push(message);
         }
     }
 
     let mut used = system
         .iter()
-        .map(AgentMessage::estimated_chars)
+        .map(|message| message.estimated_chars())
         .sum::<usize>();
     let mut selected = Vec::new();
     for message in rest.into_iter().rev() {
