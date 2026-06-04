@@ -14,6 +14,7 @@ const DEFAULT_MAX_DELEGATE_DEPTH: usize = 1;
 const SUBAGENT_TIMEOUT: Duration = Duration::from_secs(180);
 const SUBAGENT_RETRIES: usize = 3;
 const SUBAGENT_RETRY_DELAY: Duration = Duration::from_secs(1);
+const SUBAGENT_STAGGER: Duration = Duration::from_millis(350);
 const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Deserialize)]
@@ -85,6 +86,9 @@ fn run_delegate_depth(
                 let defs = defs.clone();
                 let mods = mods.clone();
                 handles.push(tauri::async_runtime::spawn(async move {
+                    if batch_index > 0 {
+                        tokio::time::sleep(SUBAGENT_STAGGER * batch_index as u32).await;
+                    }
                     let output =
                         run_one(workspace, defs, task, mods, rtk_enabled, depth_remaining).await;
                     (batch_index, output)

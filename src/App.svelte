@@ -313,17 +313,26 @@
     flushStreamBuffer();
   }
 
-  function addToolMessage(content: string) {
-    let nextContent = content;
-    const last = messages.at(-1);
-    if (streamMessageOpen && last?.role === "assistant" && last.content.trim()) {
-      messages = messages.slice(0, -1);
-      const [title = "tool", ...bodyLines] = content.split("\n");
-      const body = bodyLines.join("\n").trim();
-      nextContent = `${title}\nthinking:\n${last.content.trim()}${body ? `\n\n${body}` : ""}`;
-    }
+  function toolTitle(content: string) {
+    return content.split("\n", 1)[0] || "tool";
+  }
+
+  function isRunningTool(content: string) {
+    return /^status:\s*running\.\.\./m.test(content);
+  }
+
+  function upsertToolMessage(content: string) {
     streamMessageOpen = false;
-    addMessage("tool", nextContent);
+    const title = toolTitle(content);
+    const next = [...messages];
+    const lastIndex = next.length - 1;
+    const last = next[lastIndex];
+    if (last?.role === "tool" && toolTitle(last.content) === title && isRunningTool(last.content)) {
+      next[lastIndex] = { role: "tool", content };
+      messages = next;
+      return;
+    }
+    addMessage("tool", content);
   }
 
   function handleFileChanged(event: FileChangedEvent) {
@@ -346,7 +355,7 @@
       scheduleStreamFlush();
     } else if (event.kind === "tool") {
       flushStreamNow();
-      addToolMessage(event.content ?? "");
+      upsertToolMessage(event.content ?? "");
     } else if (event.kind === "error") {
       flushStreamNow();
       streamMessageOpen = false;
@@ -653,6 +662,10 @@
     sessions = session.sessions;
     sessionLabel = session.sessions.find((item) => item.id === session.active_session_id)?.title ?? "session";
     messages = session.messages;
+  }
+
+  function markActiveSessionRunning(running: boolean) {
+    sessions = sessions.map((session) => session.id === activeSessionId ? { ...session, running } : session);
   }
 
   async function loadSession() {
@@ -1025,7 +1038,7 @@
 
     try {
       await invoke("chat_send", { prompt: input });
-      await loadSession();
+      markActiveSessionRunning(true);
     } catch (error) {
       addMessage("error", String(error));
     } finally {

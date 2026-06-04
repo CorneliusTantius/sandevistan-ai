@@ -554,16 +554,16 @@ async fn run_agent_loop(
                     match maybe_call {
                         Some(call) => {
                             let thinking = take_stream_thinking(&stream_detector_for_tools);
-                            emit_stream_tool(app, session_id, &format!("{}\nstatus: running...", call.name));
-                            let tool_content = run_streamed_tool_call(workspace, call, mods.clone(), &mut tool_call_counts)
-                                .await
-                                .map_err(|error| AgentLoopError::new(error, &messages))?;
-                            let tool_content = tool_content_with_thinking(tool_content, thinking.as_deref());
-                            emit_stream_tool(app, session_id, &tool_content);
-                            messages.push(ChatMessage {
-                                role: "tool".into(),
-                                content: tool_content,
-                            });
+                            run_and_record_streamed_tool(
+                                app,
+                                session_id,
+                                workspace,
+                                call,
+                                mods.clone(),
+                                &mut tool_call_counts,
+                                &mut messages,
+                                thinking,
+                            ).await?;
                         }
                         None if stream_result.is_some() => break,
                         None => {}
@@ -576,16 +576,16 @@ async fn run_agent_loop(
                     stream_result = Some(result);
                     while let Ok(call) = tool_rx.try_recv() {
                         let thinking = take_stream_thinking(&stream_detector_for_tools);
-                        emit_stream_tool(app, session_id, &format!("{}\nstatus: running...", call.name));
-                        let tool_content = run_streamed_tool_call(workspace, call, mods.clone(), &mut tool_call_counts)
-                            .await
-                            .map_err(|error| AgentLoopError::new(error, &messages))?;
-                        let tool_content = tool_content_with_thinking(tool_content, thinking.as_deref());
-                        emit_stream_tool(app, session_id, &tool_content);
-                        messages.push(ChatMessage {
-                            role: "tool".into(),
-                            content: tool_content,
-                        });
+                        run_and_record_streamed_tool(
+                            app,
+                            session_id,
+                            workspace,
+                            call,
+                            mods.clone(),
+                            &mut tool_call_counts,
+                            &mut messages,
+                            thinking,
+                        ).await?;
                     }
                     break;
                 }
@@ -595,11 +595,25 @@ async fn run_agent_loop(
         let Some(stream_result) = stream_result else {
             return Err(AgentLoopError::new("stream ended without result", &messages));
         };
+        let content = if stream_result.saw_tool_call {
+            stream_result.visible_content.trim().to_string()
+        } else {
+            stream_result.assistant_content()
+        };
         if stream_result.saw_tool_call {
-            continue;
+            if content.trim().is_empty() {
+                continue;
+            }
+            if !stream_result.streamed {
+                emit_stream_start(app, session_id);
+                emit_stream_delta(app, session_id, &content);
+            }
+            messages.push(ChatMessage {
+                role: "assistant".into(),
+                content,
+            });
+            return Ok(messages);
         }
-
-        let content = stream_result.assistant_content();
         if !stream_result.streamed {
             emit_stream_start(app, session_id);
             emit_stream_delta(app, session_id, &content);
@@ -778,6 +792,40 @@ fn safe_plain_prefix_len(value: &str, marker: &str) -> usize {
         }
     }
     value.len() - keep
+}
+
+async fn run_and_record_streamed_tool(
+    app: &AppHandle,
+    session_id: &str,
+    workspace: &PathBuf,
+    call: tools::ToolCall,
+    mods: ai::ModelMods,
+    tool_call_counts: &mut HashMap<String, usize>,
+    messages: &mut Vec<ChatMessage>,
+    thinking: Option<String>,
+) -> Result<(), AgentLoopError> {
+    let name = call.name.clone();
+    emit_stream_tool(app, session_id, &format!("{name}\nstatus: running..."));
+    match run_streamed_tool_call(workspace, call, mods, tool_call_counts).await {
+        Ok(tool_content) => {
+            let tool_content = tool_content_with_thinking(tool_content, thinking.as_deref());
+            emit_stream_tool(app, session_id, &tool_content);
+            messages.push(ChatMessage {
+                role: "tool".into(),
+                content: tool_content,
+            });
+            Ok(())
+        }
+        Err(error) => {
+            let tool_content = format!("{name}\nstatus: failed\nerror: {error}");
+            emit_stream_tool(app, session_id, &tool_content);
+            messages.push(ChatMessage {
+                role: "tool".into(),
+                content: tool_content,
+            });
+            Err(AgentLoopError::new(error, messages))
+        }
+    }
 }
 
 async fn run_streamed_tool_call(
