@@ -17,6 +17,9 @@ const MAX_SEARCH_RESULTS: usize = 50;
 const MAX_DIFF_BYTES: usize = 200_000;
 const TOOL_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
+const SHELL_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+const RTK_REWRITE_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_SHELL_OUTPUT_BYTES: usize = 120_000;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ToolCall {
@@ -27,6 +30,7 @@ pub struct ToolCall {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ToolOptions {
     pub rtk_enabled: bool,
+    pub shell_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -77,9 +81,19 @@ const TOOLS: &[ToolDef] = &[
         description: "git diff, optional path, capped",
         args: r#"{"path":"relative/file"}"#,
     },
+    ToolDef {
+        name: "shell.run",
+        description:
+            "run shell command in workspace when shell tools are enabled; timeout/capped output",
+        args: r#"{"command":"npm test","timeout_secs":30}"#,
+    },
 ];
 
-pub fn prompt() -> String {
+pub fn prompt_with_subagents(
+    subagents_enabled: bool,
+    subagents: &[String],
+    shell_enabled: bool,
+) -> String {
     let mut lines = vec![
         "You are Sandevistan, a concise coding agent.".to_string(),
         "Use tools when workspace context is needed.".to_string(),
@@ -88,12 +102,32 @@ pub fn prompt() -> String {
     lines.extend(
         TOOLS
             .iter()
+            .filter(|tool| tool.name != "shell.run")
             .map(|tool| format!("- {}: {}. args: {}", tool.name, tool.description, tool.args)),
     );
+    if shell_enabled {
+        lines.push("- shell.run: run shell command in workspace when needed. args: {\"command\":\"npm test\",\"timeout_secs\":30}".to_string());
+    }
+    if subagents_enabled {
+        let names = if subagents.is_empty() {
+            "none".into()
+        } else {
+            subagents.join(", ")
+        };
+        lines.push(format!("- agent.delegate: run selected subagents concurrently. available: {names}. args: {{\"tasks\":[{{\"agent\":\"scout\",\"task\":\"find relevant files\"}},{{\"agent\":\"reviewer\",\"task\":\"review risks\"}}]}}"));
+    }
     lines.extend([
         "Prefer fs.edit for existing files. Use fs.write for new files.".to_string(),
         "Use search.rg before broad file reads. Use git.status/git.diff for repo state."
             .to_string(),
+    ]);
+    if shell_enabled {
+        lines.push("Use shell.run for explicit shell/CLI requests. Prefer read-only commands unless user clearly asks for mutations. If RTK is enabled, shell.run executes through rtk.".to_string());
+    }
+    if subagents_enabled {
+        lines.push("When user asks to ping/run/call subagents, use agent.delegate; never claim no subagents spawned before trying it. Use agent.delegate for parallel research/review/implementation planning; max 4 subagents; you own final answer.".to_string());
+    }
+    lines.extend([
         "Tool call format; emit one or more blocks when independent reads/searches can run together:".to_string(),
         r#"<tool_call>{"name":"fs.read","args":{"path":"src/main.ts"}}</tool_call>"#.to_string(),
         "After tool results, answer briefly.".to_string(),
@@ -168,6 +202,7 @@ fn run_result(workspace: &Path, call: &ToolCall, options: ToolOptions) -> ToolRu
                 git_diff(workspace, &call.args)
             }
         }
+        "shell.run" => shell_run(workspace, &call.args, options),
         _ => Err(format!("unknown tool: {}", call.name)),
     };
 
@@ -178,6 +213,78 @@ fn run_result(workspace: &Path, call: &ToolCall, options: ToolOptions) -> ToolRu
             output: format!("error: {error}"),
         },
     }
+}
+
+fn shell_run(workspace: &Path, args: &Value, options: ToolOptions) -> Result<String, String> {
+    if !options.shell_enabled {
+        return Err("shell tools disabled for this profile".into());
+    }
+    let command = arg_string(args, "command").ok_or_else(|| "missing command".to_string())?;
+    let command = command.trim();
+    if command.is_empty() {
+        return Err("command is empty".into());
+    }
+    if command.chars().count() > 2_000 {
+        return Err("command too long".into());
+    }
+    let timeout = args
+        .get("timeout_secs")
+        .and_then(Value::as_u64)
+        .map(|value| value.clamp(1, 60))
+        .map(Duration::from_secs)
+        .unwrap_or(SHELL_COMMAND_TIMEOUT);
+
+    let output = if options.rtk_enabled {
+        let rewritten = rtk_rewrite_shell_command(workspace, command)?;
+        let mut cmd = if let Some(rewritten) = rewritten {
+            let mut cmd = Command::new("sh");
+            cmd.current_dir(workspace).arg("-lc").arg(rewritten);
+            cmd
+        } else {
+            let mut cmd = Command::new("rtk");
+            cmd.current_dir(workspace).arg("run").arg("-c").arg(command);
+            cmd
+        };
+        command_utils::output_with_timeout("rtk-shell", &mut cmd, timeout)?
+    } else {
+        let mut cmd = Command::new("sh");
+        cmd.current_dir(workspace).arg("-lc").arg(command);
+        command_utils::output_with_timeout("shell", &mut cmd, timeout)?
+    };
+
+    let status = output
+        .status
+        .code()
+        .map_or_else(|| "signal".into(), |code| code.to_string());
+    let stdout = truncate_string(
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        MAX_SHELL_OUTPUT_BYTES / 2,
+    );
+    let stderr = truncate_string(
+        String::from_utf8_lossy(&output.stderr).to_string(),
+        MAX_SHELL_OUTPUT_BYTES / 2,
+    );
+    let mut parts = vec![format!("exit: {status}")];
+    if !stdout.trim().is_empty() {
+        parts.push(format!("stdout:\n{}", stdout.trim_end()));
+    }
+    if !stderr.trim().is_empty() {
+        parts.push(format!("stderr:\n{}", stderr.trim_end()));
+    }
+    Ok(parts.join("\n"))
+}
+
+fn rtk_rewrite_shell_command(workspace: &Path, command: &str) -> Result<Option<String>, String> {
+    if !rtk_available() {
+        return Err("rtk enabled but unavailable on PATH".into());
+    }
+
+    let mut rewrite = Command::new("rtk");
+    rewrite.current_dir(workspace).arg("rewrite").arg(command);
+    let output =
+        command_utils::output_with_timeout("rtk-rewrite", &mut rewrite, RTK_REWRITE_TIMEOUT)?;
+    let rewritten = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok((!rewritten.is_empty()).then_some(rewritten))
 }
 
 fn fs_list(workspace: &Path, relative: String) -> Result<String, String> {
@@ -530,7 +637,7 @@ fn rtk_output(label: &str, command: &mut Command, max_bytes: usize) -> Result<St
 }
 
 pub fn is_mutating(call: &ToolCall) -> bool {
-    matches!(call.name.as_str(), "fs.edit" | "fs.write")
+    matches!(call.name.as_str(), "fs.edit" | "fs.write" | "shell.run")
 }
 
 fn rtk_available() -> bool {

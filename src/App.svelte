@@ -3,6 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import Checkbox from "./components/Checkbox.svelte";
   import DiffPane, { type DiffTab } from "./components/DiffPane.svelte";
   import EditorPane, { type OpenFile } from "./components/EditorPane.svelte";
   import FileTree, { type FileEntry } from "./components/FileTree.svelte";
@@ -28,7 +29,23 @@
   type ProviderOption = { name: string; api_base: string };
   type ModelOption = { name: string; provider: string; id: string; context_chars: number };
   type ThinkingLevel = "auto" | "low" | "medium" | "high";
-  type AiMods = { persona: string; thinking_level: ThinkingLevel; prompt_injection: string; rtk_enabled: boolean };
+  type AgentOption = { name: string; description: string; persona: string; thinking_level: ThinkingLevel; prompt_injection: string };
+  type SubagentOption = { name: string; description: string; system: string; model: string; max_result_chars: number };
+  type AiMods = {
+    main_model: string;
+    main_agent: string;
+    subagents: string[];
+    persona: string;
+    thinking_level: ThinkingLevel;
+    prompt_injection: string;
+    rtk_enabled: boolean;
+    shell_enabled: boolean;
+    git_panel_enabled: boolean;
+    subagents_enabled: boolean;
+    subagent_model: string;
+    subagent_max_concurrency: number;
+    subagents_config: string;
+  };
   type ProfileOption = AiMods & { name: string };
   type AiConfig = {
     config_dir: string;
@@ -44,6 +61,8 @@
     mods: AiMods;
     active_profile: string;
     profiles: ProfileOption[];
+    agents: AgentOption[];
+    subagents_registry: SubagentOption[];
     rtk_available: boolean;
   };
 
@@ -58,9 +77,11 @@
     providers: [],
     models: [],
     features: { content_search: true, git: true, file_watcher: false },
-    mods: { persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true },
+    mods: { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" },
     active_profile: "default",
-    profiles: [{ name: "default", persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true }],
+    profiles: [{ name: "default", main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" }],
+    agents: [{ name: "custom", description: "Default main agent", persona: "", thinking_level: "auto", prompt_injection: "" }],
+    subagents_registry: [],
     rtk_available: false,
   };
 
@@ -113,8 +134,13 @@
   let config: AiConfig = emptyConfig;
   let providerChoice = "openai";
   let draft = { provider: "openai", api_base: "https://api.openai.com/v1", model: "gpt-4o-mini", original_model: "", api_key: "", context_chars: 80000 };
-  let modsDraft: AiMods = { persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true };
+  let modsDraft: AiMods = { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" };
   let modsProfile = "default";
+  let modsTab: "general" | "profile" | "models" | "agents" | "subagents" = "profile";
+  let addingAgent = false;
+  let addingSubagent = false;
+  let agentDraft = { name: "", original_name: "", description: "", persona: "", thinking_level: "auto" as ThinkingLevel, prompt_injection: "" };
+  let subagentDraft = { name: "", original_name: "", description: "", system: "", model: "", max_result_chars: 4000 };
   $: providerOptions = [
     ...config.providers.map((provider): SelectOption => ({ value: provider.name, label: provider.name })),
     { value: "__new__", label: "+ provider" },
@@ -125,17 +151,46 @@
     { value: "medium", label: "medium" },
     { value: "high", label: "high" },
   ];
-
+  $: topProfileOptions = config.profiles.map((profile): SelectOption => ({ value: profile.name, label: `${profile.name} · ${profile.main_model || config.model || "model"}` }));
   $: profileOptions = [
-    ...config.profiles.map((profile): SelectOption => ({ value: profile.name, label: profile.name })),
+    ...topProfileOptions,
     { value: "__new__", label: "+ profile" },
   ];
+  $: mainModelOptions = config.models.map((model): SelectOption => ({ value: model.name, label: model.name }));
+  $: subagentModelOptions = [
+    { value: "", label: "default (follow profile/fallback)" },
+    ...config.models.map((model): SelectOption => ({ value: model.name, label: model.name })),
+  ];
+  $: subagentEntries = config.subagents_registry.map((entry) => entry.name);
+  $: mainAgentOptions = config.agents.map((agent): SelectOption => ({ value: agent.name, label: agent.name }));
+  $: agentItems = config.agents.map((agent): Item => ({
+    key: agent.name,
+    title: agent.name,
+    subtitle: agent.description || agent.prompt_injection || "agent",
+    active: false,
+    onSelect: () => {},
+    actions: [
+      { label: "edit", onClick: () => editAgent(agent) },
+      { label: "del", danger: true, onClick: () => void deleteAgent(agent.name) },
+    ],
+  }));
+  $: subagentItems = config.subagents_registry.map((subagent): Item => ({
+    key: subagent.name,
+    title: subagent.name,
+    subtitle: subagent.description || subagent.system,
+    active: false,
+    onSelect: () => {},
+    actions: [
+      { label: "edit", onClick: () => editSubagent(subagent) },
+      { label: "del", danger: true, onClick: () => void deleteSubagent(subagent.name) },
+    ],
+  }));
 
   $: modelItems = config.models.map((model): Item => ({
     key: model.name,
     title: model.name,
     subtitle: `${model.provider} · ${model.id} · ctx ${formatContext(model.context_chars)}`,
-    active: model.name === draft.model,
+    active: false,
     onSelect: () => void selectModel(model),
     actions: [
       { label: "edit", onClick: () => editModel(model) },
@@ -350,11 +405,11 @@
   function openConfig() {
     addingModel = false;
     setConfigDraft(config);
-    showConfig = true;
+    modsTab = "models";
+    showMods = true;
   }
 
   async function selectModel(model: ModelOption) {
-    const same = model.name === config.model && model.provider === config.provider;
     const provider = config.providers.find((entry) => entry.name === model.provider);
     draft = {
       provider: model.provider,
@@ -364,12 +419,12 @@
       api_key: "",
       context_chars: model.context_chars || 80000,
     };
-    if (same) {
-      showConfig = false;
-      addingModel = false;
-      return;
-    }
-    await saveConfig();
+    const nextMods = normalizeMods({ ...config.mods, main_model: model.name });
+    config = await invoke<AiConfig>("ai_set_mods", { update: { profile: config.active_profile || modsProfile, ...nextMods } });
+    setConfigDraft(config);
+    modelLabel = `${config.active_profile} · ${config.model_id}`;
+    showConfig = false;
+    addingModel = false;
   }
 
   function startAddModel() {
@@ -405,19 +460,46 @@
 
   function openMods() {
     modsProfile = config.active_profile || "default";
-    modsDraft = { ...config.mods };
+    modsDraft = normalizeMods(config.mods);
+    addingAgent = false;
+    addingSubagent = false;
     showMods = true;
+  }
+
+  function normalizeMods(value: AiMods): AiMods {
+    return {
+      ...defaultMods(),
+      ...value,
+      main_model: value.main_model || config.model || "gpt-4o-mini",
+      main_agent: value.main_agent || "custom",
+      subagents: Array.isArray(value.subagents) ? value.subagents : ["scout", "reviewer", "planner"],
+      shell_enabled: value.shell_enabled ?? false,
+      git_panel_enabled: value.git_panel_enabled ?? true,
+      subagents_enabled: value.subagents_enabled ?? true,
+      subagent_max_concurrency: Math.min(4, Math.max(1, Number(value.subagent_max_concurrency) || 3)),
+    };
+  }
+
+  function defaultMods(): AiMods {
+    return { main_model: config.model || "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: config.rtk_available, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" };
+  }
+
+  function toggleSubagent(name: string) {
+    const selected = new Set(modsDraft.subagents);
+    if (selected.has(name)) selected.delete(name);
+    else selected.add(name);
+    modsDraft = { ...modsDraft, subagents: [...selected] };
   }
 
   function chooseProfile(value: string) {
     if (value === "__new__") {
       modsProfile = uniqueProfileName();
-      modsDraft = { persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: config.rtk_available };
+      modsDraft = defaultMods();
       return;
     }
     modsProfile = value;
     const profile = config.profiles.find((item) => item.name === value);
-    if (profile) modsDraft = { persona: profile.persona, thinking_level: profile.thinking_level, prompt_injection: profile.prompt_injection, rtk_enabled: profile.rtk_enabled };
+    if (profile) modsDraft = normalizeMods(profile);
   }
 
   function uniqueProfileName() {
@@ -427,12 +509,67 @@
     return `profile-${index}`;
   }
 
+  function editAgent(agent: AgentOption) {
+    addingAgent = true;
+    agentDraft = { name: agent.name, original_name: agent.name, description: agent.description, persona: agent.persona, thinking_level: agent.thinking_level, prompt_injection: agent.prompt_injection };
+  }
+
+  function addAgent() {
+    addingAgent = true;
+    agentDraft = { name: "", original_name: "", description: "", persona: "", thinking_level: "auto", prompt_injection: "" };
+  }
+
+  async function saveAgent() {
+    config = await invoke<AiConfig>("ai_save_agent", { update: agentDraft });
+    setConfigDraft(config);
+    agentDraft = { name: "", original_name: "", description: "", persona: "", thinking_level: "auto", prompt_injection: "" };
+    addingAgent = false;
+  }
+
+  async function deleteAgent(name: string) {
+    config = await invoke<AiConfig>("ai_delete_agent", { request: { name } });
+    setConfigDraft(config);
+  }
+
+  function editSubagent(subagent: SubagentOption) {
+    addingSubagent = true;
+    subagentDraft = { name: subagent.name, original_name: subagent.name, description: subagent.description, system: subagent.system, model: subagent.model, max_result_chars: subagent.max_result_chars };
+  }
+
+  function addSubagent() {
+    addingSubagent = true;
+    subagentDraft = { name: "", original_name: "", description: "", system: "", model: "", max_result_chars: 4000 };
+  }
+
+  async function saveSubagent() {
+    config = await invoke<AiConfig>("ai_save_subagent", { update: subagentDraft });
+    setConfigDraft(config);
+    subagentDraft = { name: "", original_name: "", description: "", system: "", model: "", max_result_chars: 4000 };
+    addingSubagent = false;
+  }
+
+  async function deleteSubagent(name: string) {
+    config = await invoke<AiConfig>("ai_delete_subagent", { request: { name } });
+    setConfigDraft(config);
+  }
+
+  async function switchProfile(profile: string) {
+    if (!profile || profile === config.active_profile) return;
+    try {
+      config = await invoke<AiConfig>("ai_set_active_profile", { update: { profile } });
+      setConfigDraft(config);
+      modelLabel = `${config.active_profile} · ${config.model_id}`;
+    } catch (error) {
+      addMessage("error", String(error));
+    }
+  }
+
   async function saveMods() {
     busy = true;
     try {
-      config = await invoke<AiConfig>("ai_set_mods", { update: { profile: modsProfile, ...modsDraft } });
+      config = await invoke<AiConfig>("ai_set_mods", { update: { profile: modsProfile, ...normalizeMods(modsDraft) } });
       setConfigDraft(config);
-      modelLabel = `${config.provider}/${config.model_id}`;
+      modelLabel = `${config.active_profile} · ${config.model_id}`;
       showMods = false;
     } catch (error) {
       addMessage("error", String(error));
@@ -444,7 +581,7 @@
   async function loadConfig() {
     config = await invoke<AiConfig>("ai_config");
     setConfigDraft(config);
-    modelLabel = `${config.provider}/${config.model_id}`;
+    modelLabel = `${config.active_profile} · ${config.model_id}`;
     await syncFileWatcher();
   }
 
@@ -924,7 +1061,7 @@
 ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝  ╚═══╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝╚═╝</pre>
     </div>
     <div class="header-actions">
-      <button class="ghost" type="button" on:click={openConfig}>{modelLabel}</button>
+      <div class="top-profile"><SelectBox value={config.active_profile} options={topProfileOptions} onChange={(value) => void switchProfile(value)} /></div>
       <button class="ghost" type="button" on:click={openMods}>mods</button>
       <button class="ghost" type="button" on:click={openTerminal}>term</button>
       <button class="window-close" type="button" aria-label="close" on:click={closeWindow}>×</button>
@@ -1086,31 +1223,83 @@
   {/if}
 
   {#if showMods}
-    <Modal title="Agent profile" onClose={() => (showMods = false)}>
-      <label>
-        Profile
-        <SelectBox value={modsProfile} options={profileOptions} onChange={chooseProfile} />
-      </label>
-      <label>
-        Profile name
-        <input bind:value={modsProfile} placeholder="default" />
-      </label>
-      <label>
-        Thinking level
-        <SelectBox value={modsDraft.thinking_level} options={thinkingOptions} onChange={(value) => (modsDraft = { ...modsDraft, thinking_level: value as ThinkingLevel })} />
-      </label>
-      <label>
-        Persona
-        <textarea bind:value={modsDraft.persona} rows="4" placeholder="short model persona override"></textarea>
-      </label>
-      <label>
-        Prompt injection
-        <textarea bind:value={modsDraft.prompt_injection} rows="4" placeholder="sent as compact system addendum only when non-empty"></textarea>
-      </label>
-      <div class="feature-list">
-        <button class="ghost" type="button" disabled={!config.rtk_available} on:click={() => (modsDraft = { ...modsDraft, rtk_enabled: !modsDraft.rtk_enabled })}>rtk: {config.rtk_available ? (modsDraft.rtk_enabled ? "on" : "off") : "not installed"}</button>
+    <Modal title="Mods" onClose={() => (showMods = false)}>
+      <div class="mods-layout">
+        <nav class="mods-nav" aria-label="mods sections">
+          <button class:active={modsTab === "general"} class="ghost" type="button" on:click={() => (modsTab = "general")}>general</button>
+          <button class:active={modsTab === "profile"} class="ghost" type="button" on:click={() => (modsTab = "profile")}>profile</button>
+          <button class:active={modsTab === "models"} class="ghost" type="button" on:click={() => (modsTab = "models")}>models</button>
+          <button class:active={modsTab === "agents"} class="ghost" type="button" on:click={() => (modsTab = "agents")}>agents</button>
+          <button class:active={modsTab === "subagents"} class="ghost" type="button" on:click={() => (modsTab = "subagents")}>subagents</button>
+        </nav>
+
+        <section class="mods-content">
+          {#if modsTab === "general"}
+            <div class="feature-list compact-feature-list">
+              <div class="side-title">general settings</div>
+              <Checkbox checked={featureGit} label={`git panel: ${featureGit ? "on" : "off"}`} onChange={(checked) => void setFeature("git", checked)} />
+              <Checkbox checked={featureFileWatcher} label={`file watcher: ${featureFileWatcher ? "on" : "off"}`} onChange={(checked) => void setFeature("file_watcher", checked)} />
+              <Checkbox checked={featureContentSearch} label={`content search: ${featureContentSearch ? "on" : "off"}`} onChange={(checked) => void setFeature("content_search", checked)} />
+            </div>
+          {:else if modsTab === "profile"}
+            <label>Profile<SelectBox fit value={modsProfile} options={profileOptions} onChange={chooseProfile} /></label>
+            <label>Profile name<input bind:value={modsProfile} placeholder="default" /></label>
+            <label>Main model<SelectBox fit value={modsDraft.main_model} options={mainModelOptions} onChange={(value) => (modsDraft = { ...modsDraft, main_model: value })} /></label>
+            <label>Main agent<SelectBox fit value={modsDraft.main_agent} options={mainAgentOptions} onChange={(value) => (modsDraft = { ...modsDraft, main_agent: value })} /></label>
+            <label>Subagent concurrency<input bind:value={modsDraft.subagent_max_concurrency} type="number" min="1" max="4" step="1" /></label>
+            <div class="feature-list compact-feature-list">
+              <div class="side-title">profile toggles</div>
+              <Checkbox checked={modsDraft.rtk_enabled} label={`rtk: ${config.rtk_available ? (modsDraft.rtk_enabled ? "on" : "off") : "not installed"}`} disabled={!config.rtk_available && !modsDraft.rtk_enabled} onChange={(checked) => (modsDraft = { ...modsDraft, rtk_enabled: checked })} />
+              <Checkbox checked={modsDraft.shell_enabled} label={`shell tool: ${modsDraft.shell_enabled ? "on" : "off"}${modsDraft.rtk_enabled && config.rtk_available ? " · via rtk" : ""}`} onChange={(checked) => (modsDraft = { ...modsDraft, shell_enabled: checked })} />
+              <Checkbox checked={modsDraft.subagents_enabled} label={`subagents: ${modsDraft.subagents_enabled ? "on" : "off"}`} onChange={(checked) => (modsDraft = { ...modsDraft, subagents_enabled: checked })} />
+            </div>
+            {#if modsDraft.subagents_enabled}
+              <label>Subagent fallback model<SelectBox fit value={modsDraft.subagent_model} options={subagentModelOptions} onChange={(value) => (modsDraft = { ...modsDraft, subagent_model: value })} /></label>
+              <div class="feature-list compact-feature-list">
+                <div class="side-title">enabled subagents</div>
+                {#each subagentEntries as name}
+                  <Checkbox checked={modsDraft.subagents.includes(name)} label={name} onChange={() => toggleSubagent(name)} />
+                {/each}
+              </div>
+            {/if}
+            <p class="hint">profile = model + one agent + selected subagents. changes affect next run.</p>
+          {:else if modsTab === "models"}
+            {#if !addingModel}
+              <div class="model-scroll"><ItemList items={modelItems} addTitle="+ add model" addSubtitle="OpenAI-compatible" onAdd={startAddModel} /></div>
+            {:else}
+              <label>Provider<SelectBox fit value={providerChoice} options={providerOptions} onChange={chooseProvider} /></label>
+              {#if providerChoice === "__new__"}<label>Provider name<input bind:value={draft.provider} placeholder="openai" /></label>{/if}
+              <label>API base<input bind:value={draft.api_base} placeholder="https://api.openai.com/v1" /></label>
+              <label>Model<input bind:value={draft.model} placeholder="gpt-4o-mini" /></label>
+              <label>Context chars<input bind:value={draft.context_chars} type="number" min="4000" max="1000000" step="1000" /></label>
+              <label>API key <small>{config.has_api_key ? "saved; leave blank to keep" : "not set"}</small><input bind:value={draft.api_key} type="password" placeholder="sk-..." /></label>
+              <div class="actions right"><button class="ghost" type="button" on:click={() => (addingModel = false)}>back</button><button type="button" disabled={busy} on:click={saveConfig}>save model</button></div>
+            {/if}
+          {:else if modsTab === "agents"}
+            {#if !addingAgent}
+              <ItemList items={agentItems} addTitle="+ add agent" addSubtitle="main agent" onAdd={addAgent} />
+            {:else}
+              <label>Name<input bind:value={agentDraft.name} placeholder="custom" /></label>
+              <label>Description<input bind:value={agentDraft.description} placeholder="main agent description" /></label>
+              <label>Thinking<SelectBox fit value={agentDraft.thinking_level} options={thinkingOptions} onChange={(value) => (agentDraft = { ...agentDraft, thinking_level: value as ThinkingLevel })} /></label>
+              <label>Persona<textarea bind:value={agentDraft.persona} rows="4"></textarea></label>
+              <label>Prompt injection<textarea bind:value={agentDraft.prompt_injection} rows="4"></textarea></label>
+              <div class="actions right"><button class="ghost" type="button" on:click={() => (addingAgent = false)}>back</button><button type="button" disabled={!agentDraft.name.trim()} on:click={() => void saveAgent()}>save agent</button><button class="ghost danger" type="button" disabled={!agentDraft.original_name || agentDraft.original_name === "custom"} on:click={() => void deleteAgent(agentDraft.original_name)}>delete</button></div>
+            {/if}
+          {:else}
+            {#if !addingSubagent}
+              <ItemList items={subagentItems} addTitle="+ add subagent" addSubtitle="worker definition" onAdd={addSubagent} />
+            {:else}
+              <label>Name<input bind:value={subagentDraft.name} placeholder="scout" /></label>
+              <label>Description<input bind:value={subagentDraft.description} placeholder="short purpose" /></label>
+              <label>Model<SelectBox fit value={subagentDraft.model} options={subagentModelOptions} onChange={(value) => (subagentDraft = { ...subagentDraft, model: value })} /></label>
+              <label>Max result chars<input bind:value={subagentDraft.max_result_chars} type="number" min="500" max="20000" step="500" /></label>
+              <label>System<textarea bind:value={subagentDraft.system} rows="6" placeholder="subagent role and rules"></textarea></label>
+              <div class="actions right"><button class="ghost" type="button" on:click={() => (addingSubagent = false)}>back</button><button type="button" disabled={!subagentDraft.name.trim() || !subagentDraft.system.trim()} on:click={() => void saveSubagent()}>save subagent</button><button class="ghost danger" type="button" disabled={!subagentDraft.original_name} on:click={() => void deleteSubagent(subagentDraft.original_name)}>delete</button></div>
+            {/if}
+          {/if}
+        </section>
       </div>
-      <p class="hint">profiles are app-wide; context stays per model.</p>
       <div class="actions right">
         <button class="ghost" type="button" on:click={() => (showMods = false)}>back</button>
         <button type="button" disabled={busy} on:click={() => void saveMods()}>save mods</button>
@@ -1127,13 +1316,12 @@
           <div class="feature-list">
             <div class="side-title">features</div>
             <button class="ghost" type="button" on:click={() => void setFeature("content_search", !featureContentSearch)}>content search: {featureContentSearch ? "on" : "off"}</button>
-            <button class="ghost" type="button" on:click={() => void setFeature("git", !featureGit)}>git panel: {featureGit ? "on" : "off"}</button>
             <button class="ghost" type="button" on:click={() => void setFeature("file_watcher", !featureFileWatcher)}>file watcher: {featureFileWatcher ? "on" : "off"}</button>
           </div>
         {:else}
           <label>
             Provider
-            <SelectBox value={providerChoice} options={providerOptions} onChange={chooseProvider} />
+            <SelectBox fit value={providerChoice} options={providerOptions} onChange={chooseProvider} />
           </label>
           {#if providerChoice === "__new__"}
             <label>

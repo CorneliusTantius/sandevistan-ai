@@ -5,6 +5,7 @@ mod context;
 mod files;
 mod provider;
 mod shell;
+mod subagent;
 mod tools;
 mod watcher;
 mod workspace_tools;
@@ -32,6 +33,31 @@ fn ai_set_feature(update: ai::FeatureUpdate) -> Result<ai::AiConfig, String> {
 #[tauri::command]
 fn ai_set_mods(update: ai::ModsUpdate) -> Result<ai::AiConfig, String> {
     ai::set_mods(update)
+}
+
+#[tauri::command]
+fn ai_set_active_profile(update: ai::ActiveProfileUpdate) -> Result<ai::AiConfig, String> {
+    ai::set_active_profile(update)
+}
+
+#[tauri::command]
+fn ai_save_agent(update: ai::AgentUpdate) -> Result<ai::AiConfig, String> {
+    ai::save_agent(update)
+}
+
+#[tauri::command]
+fn ai_delete_agent(request: ai::DeleteAgentRequest) -> Result<ai::AiConfig, String> {
+    ai::delete_agent(request)
+}
+
+#[tauri::command]
+fn ai_save_subagent(update: ai::SubagentUpdate) -> Result<ai::AiConfig, String> {
+    ai::save_subagent(update)
+}
+
+#[tauri::command]
+fn ai_delete_subagent(request: ai::DeleteSubagentRequest) -> Result<ai::AiConfig, String> {
+    ai::delete_subagent(request)
 }
 
 #[tauri::command]
@@ -237,6 +263,11 @@ pub fn run() {
             ai_delete_model,
             ai_set_feature,
             ai_set_mods,
+            ai_set_active_profile,
+            ai_save_agent,
+            ai_delete_agent,
+            ai_save_subagent,
+            ai_delete_subagent,
             chat_session,
             chat_set_workspace,
             chat_delete_workspace,

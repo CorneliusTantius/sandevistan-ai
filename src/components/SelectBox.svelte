@@ -6,6 +6,7 @@
   export let value = "";
   export let options: SelectOption[] = [];
   export let onChange: (value: string) => void = () => {};
+  export let fit = false;
 
   let open = false;
   $: label = options.find((option) => option.value === value)?.label ?? value;
@@ -24,7 +25,7 @@
   }
 </script>
 
-<div class="selectbox" on:focusout={blur}>
+<div class:fit class="selectbox" on:focusout={blur}>
   <button class="trigger" type="button" on:click|stopPropagation={() => (open = !open)}>{label}</button>
   {#if open}
     <div class="menu">
@@ -38,10 +39,14 @@
 <style>
   .selectbox {
     position: relative;
+    width: max-content;
+    min-width: max-content;
   }
 
   .trigger {
-    width: 100%;
+    width: max-content;
+    min-width: max-content;
+    white-space: nowrap;
     color: var(--text);
     border: 1px solid var(--panel);
     background: var(--surface);
@@ -51,14 +56,25 @@
 
   .menu {
     position: absolute;
-    z-index: 10;
+    z-index: 1001;
     top: 100%;
     left: 0;
-    right: 0;
+    right: auto;
+    min-width: 100%;
     display: grid;
     border: 1px solid var(--panel);
     border-top: 0;
     background: var(--bg);
+  }
+
+  .selectbox.fit,
+  .selectbox.fit .trigger {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .selectbox.fit .menu {
+    right: 0;
   }
 
   .menu button {

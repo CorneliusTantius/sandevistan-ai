@@ -38,7 +38,7 @@
   }
 
   .modal {
-    width: min(560px, 100%);
+    width: min(760px, 100%);
     max-height: calc(100vh - 28px);
     overflow: auto;
     display: grid;

@@ -16,7 +16,6 @@ pub struct ProviderRuntime {
 struct ChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
-    temperature: f32,
     stream: bool,
 }
 
@@ -96,7 +95,6 @@ async fn send_chat_completions(
     let request = ChatRequest {
         model: runtime.model_id.clone(),
         messages,
-        temperature: 0.2,
         stream: false,
     };
     let body = post_json(&runtime, "chat/completions", &request).await?;
@@ -123,7 +121,6 @@ where
     let request = ChatRequest {
         model: runtime.model_id.clone(),
         messages,
-        temperature: 0.2,
         stream: true,
     };
     send_stream(&runtime, "chat/completions", &request, on_delta).await
