@@ -13,7 +13,7 @@ const MAX_LIST_ENTRIES: usize = 200;
 const MAX_READ_BYTES: u64 = 50_000;
 const MAX_WRITE_BYTES: usize = 200_000;
 const MAX_TOOL_OUTPUT_BYTES: usize = 64_000;
-const MAX_SEARCH_RESULTS: usize = 50;
+const MAX_SEARCH_RESULTS: usize = 200;
 const MAX_DIFF_BYTES: usize = 200_000;
 const TOOL_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
@@ -69,7 +69,7 @@ const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "search.rg",
         description: "content search via ripgrep, respects ignore files, capped",
-        args: r#"{"query":"text","path":".","case_sensitive":false,"max_results":50}"#,
+        args: r#"{"query":"text","path":".","case_sensitive":false,"max_results":200}"#,
     },
     ToolDef {
         name: "git.status",

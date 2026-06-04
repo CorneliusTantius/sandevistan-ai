@@ -14,6 +14,8 @@
   import TerminalPane from "./components/TerminalPane.svelte";
   import ToolGroup from "./components/ToolGroup.svelte";
 
+  const appVersion = import.meta.env.PACKAGE_VERSION ?? "dev";
+
   type Role = "user" | "assistant" | "tool" | "error";
   type SearchHit = { path: string; line: number; column: number; text: string };
   type GitStatusEntry = { path: string; status: string; raw: string };
@@ -307,6 +309,19 @@
     flushStreamBuffer();
   }
 
+  function addToolMessage(content: string) {
+    let nextContent = content;
+    const last = messages.at(-1);
+    if (streamMessageOpen && last?.role === "assistant" && last.content.trim()) {
+      messages = messages.slice(0, -1);
+      const [title = "tool", ...bodyLines] = content.split("\n");
+      const body = bodyLines.join("\n").trim();
+      nextContent = `${title}\nthinking:\n${last.content.trim()}${body ? `\n\n${body}` : ""}`;
+    }
+    streamMessageOpen = false;
+    addMessage("tool", nextContent);
+  }
+
   function handleFileChanged(event: FileChangedEvent) {
     if (event.workspace !== workspace || !featureFileWatcher) return;
     if (fileChangeTimer) window.clearTimeout(fileChangeTimer);
@@ -327,8 +342,7 @@
       scheduleStreamFlush();
     } else if (event.kind === "tool") {
       flushStreamNow();
-      streamMessageOpen = false;
-      addMessage("tool", event.content ?? "");
+      addToolMessage(event.content ?? "");
     } else if (event.kind === "error") {
       flushStreamNow();
       streamMessageOpen = false;
@@ -1092,13 +1106,14 @@
 
 <main class="app">
   <header class="topbar" data-tauri-drag-region>
-    <div>
+    <div class="brand-mark">
       <pre class="ascii" aria-label="sandevistan">███████╗ █████╗ ███╗   ██╗██████╗ ███████╗██╗   ██╗██╗███████╗████████╗ █████╗ ███╗   ██╗         █████╗ ██╗
 ██╔════╝██╔══██╗████╗  ██║██╔══██╗██╔════╝██║   ██║██║██╔════╝╚══██╔══╝██╔══██╗████╗  ██║        ██╔══██╗██║
 ███████╗███████║██╔██╗ ██║██║  ██║█████╗  ██║   ██║██║███████╗   ██║   ███████║██╔██╗ ██║        ███████║██║
 ╚════██║██╔══██║██║╚██╗██║██║  ██║██╔══╝  ╚██╗ ██╔╝██║╚════██║   ██║   ██╔══██║██║╚██╗██║        ██╔══██║██║
 ███████║██║  ██║██║ ╚████║██████╔╝███████╗ ╚████╔╝ ██║███████║   ██║   ██║  ██║██║ ╚████║███████╗██║  ██║██║
 ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝  ╚═══╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝╚═╝</pre>
+      <span class="app-version">v{appVersion}</span>
     </div>
     <div class="header-actions">
       <div class="top-profile"><SelectBox value={config.active_profile} options={topProfileOptions} onChange={(value) => void switchProfile(value)} /></div>

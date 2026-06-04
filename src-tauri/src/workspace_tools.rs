@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-const MAX_SEARCH_RESULTS: usize = 100;
+const MAX_SEARCH_RESULTS: usize = 200;
 const MAX_DIFF_BYTES: usize = 200_000;
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
 const GIT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -61,7 +61,7 @@ pub fn content_search(
     };
     let max_results = request
         .max_results
-        .unwrap_or(50)
+        .unwrap_or(200)
         .clamp(1, MAX_SEARCH_RESULTS);
 
     let mut command = Command::new("rg");

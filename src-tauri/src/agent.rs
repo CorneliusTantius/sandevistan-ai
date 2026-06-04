@@ -355,7 +355,7 @@ impl ChatRuntime {
             )
             .await;
             if let Err(error) = &result {
-                emit_stream_error(&app, &task_session_id, error);
+                emit_stream_error(&app, &task_session_id, &error.message);
             }
             finish_task(&workspace, &task_session_id, result).await.ok();
             emit_stream_done(&app, &task_session_id);
@@ -435,7 +435,7 @@ async fn run_agent_loop(
     mut messages: Vec<ChatMessage>,
     mods: ai::ModelMods,
     prompt_config: context::PromptConfig,
-) -> Result<Vec<ChatMessage>, String> {
+) -> Result<Vec<ChatMessage>, AgentLoopError> {
     let mods_prompt = ai::mods_prompt();
     let base_prompt = tools::prompt_with_subagents(
         mods.subagents_enabled && !mods.subagents.is_empty(),
@@ -488,6 +488,7 @@ async fn run_agent_loop(
         let stream_session_id = session_id.to_string();
         let stream_model = mods.main_model.clone();
         let stream_detector_for_delta = stream_detector.clone();
+        let stream_detector_for_tools = stream_detector.clone();
         let streamed_for_delta = streamed.clone();
         let tool_tx_for_delta = tool_tx.clone();
         let stream_app_for_delta = stream_app.clone();
@@ -552,8 +553,12 @@ async fn run_agent_loop(
                 maybe_call = tool_rx.recv() => {
                     match maybe_call {
                         Some(call) => {
+                            let thinking = take_stream_thinking(&stream_detector_for_tools);
                             emit_stream_tool(app, session_id, &format!("{}\nstatus: running...", call.name));
-                            let tool_content = run_streamed_tool_call(workspace, call, mods.clone(), &mut tool_call_counts).await?;
+                            let tool_content = run_streamed_tool_call(workspace, call, mods.clone(), &mut tool_call_counts)
+                                .await
+                                .map_err(|error| AgentLoopError::new(error, &messages))?;
+                            let tool_content = tool_content_with_thinking(tool_content, thinking.as_deref());
                             emit_stream_tool(app, session_id, &tool_content);
                             messages.push(ChatMessage {
                                 role: "tool".into(),
@@ -566,11 +571,16 @@ async fn run_agent_loop(
                 }
                 result = &mut stream_task, if stream_result.is_none() => {
                     let result = result
-                        .map_err(|error| format!("stream task failed: {error}"))??;
+                        .map_err(|error| AgentLoopError::new(format!("stream task failed: {error}"), &messages))?
+                        .map_err(|error| AgentLoopError::new(error, &messages))?;
                     stream_result = Some(result);
                     while let Ok(call) = tool_rx.try_recv() {
+                        let thinking = take_stream_thinking(&stream_detector_for_tools);
                         emit_stream_tool(app, session_id, &format!("{}\nstatus: running...", call.name));
-                        let tool_content = run_streamed_tool_call(workspace, call, mods.clone(), &mut tool_call_counts).await?;
+                        let tool_content = run_streamed_tool_call(workspace, call, mods.clone(), &mut tool_call_counts)
+                            .await
+                            .map_err(|error| AgentLoopError::new(error, &messages))?;
+                        let tool_content = tool_content_with_thinking(tool_content, thinking.as_deref());
                         emit_stream_tool(app, session_id, &tool_content);
                         messages.push(ChatMessage {
                             role: "tool".into(),
@@ -582,7 +592,9 @@ async fn run_agent_loop(
             }
         }
 
-        let stream_result = stream_result.ok_or_else(|| "stream ended without result".to_string())?;
+        let Some(stream_result) = stream_result else {
+            return Err(AgentLoopError::new("stream ended without result", &messages));
+        };
         if stream_result.saw_tool_call {
             continue;
         }
@@ -612,6 +624,21 @@ fn should_ping_subagents(messages: &[ChatMessage], mods: &ai::ModelMods) -> bool
     }
     let content = message.content.to_lowercase();
     content.contains("ping") && content.contains("subagent")
+}
+
+#[derive(Debug)]
+struct AgentLoopError {
+    message: String,
+    messages: Vec<ChatMessage>,
+}
+
+impl AgentLoopError {
+    fn new(message: impl Into<String>, messages: &[ChatMessage]) -> Self {
+        Self {
+            message: message.into(),
+            messages: messages.to_vec(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -656,6 +683,12 @@ impl ToolCallStreamDetector {
 
     fn visible_content(&self) -> String {
         self.visible.trim().to_string()
+    }
+
+    fn take_visible_content(&mut self) -> Option<String> {
+        let text = self.visible.trim().to_string();
+        self.visible.clear();
+        (!text.is_empty()).then_some(text)
     }
 
     fn drain(&mut self, final_flush: bool) -> ToolCallStreamUpdate {
@@ -714,6 +747,27 @@ fn append_visible_text(existing: &str, output: &mut String, value: &str) {
         return;
     }
     output.push_str(value);
+}
+
+fn take_stream_thinking(detector: &Arc<Mutex<ToolCallStreamDetector>>) -> Option<String> {
+    detector
+        .lock()
+        .ok()
+        .and_then(|mut detector| detector.take_visible_content())
+}
+
+fn tool_content_with_thinking(content: String, thinking: Option<&str>) -> String {
+    let Some(thinking) = thinking.map(str::trim).filter(|value| !value.is_empty()) else {
+        return content;
+    };
+    let mut lines = content.splitn(2, '\n');
+    let title = lines.next().unwrap_or("tool");
+    let body = lines.next().unwrap_or_default().trim();
+    if body.is_empty() {
+        format!("{title}\nthinking:\n{thinking}")
+    } else {
+        format!("{title}\nthinking:\n{thinking}\n\n{body}")
+    }
 }
 
 fn safe_plain_prefix_len(value: &str, marker: &str) -> usize {
@@ -898,7 +952,7 @@ fn emit_stream(app: &AppHandle, event: StreamEvent) {
 async fn finish_task(
     workspace: &PathBuf,
     session_id: &str,
-    result: Result<Vec<ChatMessage>, String>,
+    result: Result<Vec<ChatMessage>, AgentLoopError>,
 ) -> Result<(), String> {
     let mut index = ensure_index(workspace);
     let mut file = load_session_file(workspace, session_id)?;
@@ -906,10 +960,13 @@ async fn finish_task(
         Ok(messages) => {
             file.messages = messages;
         }
-        Err(error) => file.messages.push(ChatMessage {
-            role: "error".into(),
-            content: error,
-        }),
+        Err(error) => {
+            file.messages = error.messages;
+            file.messages.push(ChatMessage {
+                role: "error".into(),
+                content: error.message,
+            });
+        }
     }
 
     if let Some(meta) = index
