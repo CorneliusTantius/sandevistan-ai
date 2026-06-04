@@ -22,6 +22,8 @@
 | macOS Intel | Download DMG from latest release. |
 | macOS Apple Silicon | Download DMG from latest release. |
 
+macOS unsigned app workaround: `xattr -dr com.apple.quarantine /Applications/sandevistan.app`
+
 ## Tech Stack
 
 - 🦀 Rust
