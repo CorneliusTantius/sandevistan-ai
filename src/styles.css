@@ -444,10 +444,24 @@ h2 {
   gap: 8px;
 }
 
+.running-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 6px 8px;
+  border: 1px solid var(--panel);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--black) 88%, var(--panel));
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .run-dot {
   width: 8px;
   height: 8px;
-  margin-bottom: 14px;
   background: var(--accent);
 }
 

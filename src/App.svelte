@@ -1216,9 +1216,11 @@
           {/each}
         </div>
 
+        {#if activeSessionRunning}
+          <div class="running-status" role="status" aria-live="polite"><span class="run-dot" aria-hidden="true"></span>running...</div>
+        {/if}
         <form class="prompt-form" on:submit|preventDefault={sendPrompt}>
           <textarea value={prompt} on:beforeinput={rememberPromptSnapshot} on:input={inputPrompt} on:keydown={keydown} rows="4" placeholder="message · Enter = send · Shift+Enter = newline" autocomplete="off"></textarea>
-          {#if activeSessionRunning}<span class="run-dot" aria-label="working"></span>{/if}
           <button type="submit" disabled={busy || activeSessionRunning || !prompt.trim()}>send</button>
           <button class="ghost danger" type="button" disabled={!activeSessionRunning} on:click={() => void cancelPrompt()}>abort</button>
         </form>
