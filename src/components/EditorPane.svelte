@@ -1,4 +1,18 @@
 <script lang="ts">
+  import { onDestroy, onMount, tick } from "svelte";
+  import { EditorState, type Extension } from "@codemirror/state";
+  import { EditorView, drawSelection, dropCursor, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, rectangularSelection } from "@codemirror/view";
+  import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+  import { HighlightStyle, bracketMatching, indentOnInput, syntaxHighlighting } from "@codemirror/language";
+  import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+  import { MergeView } from "@codemirror/merge";
+  import { tags as t } from "@lezer/highlight";
+  import { javascript } from "@codemirror/lang-javascript";
+  import { html } from "@codemirror/lang-html";
+  import { css } from "@codemirror/lang-css";
+  import { json } from "@codemirror/lang-json";
+  import { markdown } from "@codemirror/lang-markdown";
+
   export type OpenFile = {
     path: string;
     content: string;
@@ -8,220 +22,251 @@
     mode: "edit" | "diff";
   };
 
-  type TextSnapshot = { value: string; selectionStart: number; selectionEnd: number };
+  const SYNTAX_LIMIT = 200_000;
+  const LARGE_FILE_LIMIT = 1_000_000;
 
   export let file: OpenFile;
   export let onChange: (content: string) => void = () => {};
-  export let onSave: () => void = () => {};
+  export let onDirtyChange: (dirty: boolean) => void = () => {};
+  export let onSave: (content: string) => void = () => {};
   export let onMode: (mode: "edit" | "diff") => void = () => {};
 
-  let undoStack: TextSnapshot[] = [];
-  let redoStack: TextSnapshot[] = [];
-  let historyPath = "";
-  let editorEl: HTMLTextAreaElement;
-  let findInputEl: HTMLInputElement;
-  let findOpen = false;
-  let findQuery = "";
-  let findIndex = -1;
-  let findCount = 0;
+  let editorHost: HTMLDivElement;
+  let mergeHost: HTMLDivElement;
+  let view: EditorView | undefined;
+  let mergeView: MergeView | undefined;
+  let currentContent = "";
+  let localDirty = false;
+  let mountedPath = "";
+  let syncedContent = "";
+  let lastPropContent = "";
+  let mergeOpening = false;
 
-  $: diff = makeDiff(file.original, file.content);
-  $: if (file.path !== historyPath) {
-    historyPath = file.path;
-    undoStack = [];
-    redoStack = [];
-    findOpen = false;
-    findQuery = "";
-    findIndex = -1;
-    findCount = 0;
+  $: syntaxEnabled = currentContent.length <= SYNTAX_LIMIT;
+  $: largeFile = currentContent.length > LARGE_FILE_LIMIT;
+
+  $: if (view && file.path !== mountedPath) resetEditor(file.content);
+  $: if (view && file.content !== lastPropContent) handlePropContentChange();
+  $: if (view && file.mode === "diff") void ensureMergeView();
+  $: if (view && file.mode === "edit" && mergeView) closeMergeView(true);
+  $: if (view) updateDirty();
+
+  onMount(() => {
+    currentContent = file.content;
+    syncedContent = file.content;
+    mountedPath = file.path;
+    lastPropContent = file.content;
+    localDirty = file.dirty;
+    view = new EditorView({ state: createState(currentContent), parent: editorHost });
+  });
+
+  onDestroy(() => {
+    flushContent();
+    closeMergeView(false);
+    view?.destroy();
+    view = undefined;
+  });
+
+  function createState(doc: string, extra: Extension[] = []) {
+    return EditorState.create({ doc, extensions: editorExtensions(doc, extra) });
   }
 
-  function textSnapshot(target: HTMLTextAreaElement): TextSnapshot {
-    return {
-      value: target.value,
-      selectionStart: target.selectionStart,
-      selectionEnd: target.selectionEnd,
-    };
+  function editorExtensions(doc: string, extra: Extension[] = []): Extension[] {
+    const syntax = doc.length <= SYNTAX_LIMIT ? languageForPath(file.path) : [];
+    const undoDepth = doc.length > SYNTAX_LIMIT ? 20 : 100;
+    return [
+      lineNumbers(),
+      highlightActiveLineGutter(),
+      drawSelection(),
+      dropCursor(),
+      rectangularSelection(),
+      highlightActiveLine(),
+      indentOnInput(),
+      bracketMatching(),
+      search({ top: true }),
+      highlightSelectionMatches(),
+      history({ minDepth: undoDepth }),
+      syntaxHighlighting(sandevistanHighlightStyle),
+      syntax,
+      keymap.of([
+        { key: "Mod-s", run: () => { saveCurrent(); return true; } },
+        indentWithTab,
+        ...defaultKeymap,
+        ...historyKeymap,
+        ...searchKeymap,
+      ]),
+      EditorView.lineWrapping,
+      EditorView.updateListener.of((update) => {
+        if (!update.docChanged) return;
+        if (mergeView?.a === update.view) return;
+        currentContent = update.state.doc.toString();
+        updateDirty();
+      }),
+      editorTheme,
+      extra,
+    ];
   }
 
-  function sameTextSnapshot(left: TextSnapshot | undefined, right: TextSnapshot) {
-    return Boolean(left && left.value === right.value && left.selectionStart === right.selectionStart && left.selectionEnd === right.selectionEnd);
+  const sandevistanHighlightStyle = HighlightStyle.define([
+    { tag: t.keyword, color: "#7aa2ff", fontWeight: "700" },
+    { tag: [t.atom, t.bool, t.null], color: "#ffb86c" },
+    { tag: [t.number, t.integer, t.float], color: "#ffb86c" },
+    { tag: [t.string, t.special(t.string)], color: "#7ee787" },
+    { tag: [t.regexp, t.escape], color: "#00adb5" },
+    { tag: [t.comment, t.lineComment, t.blockComment], color: "#6b7b8c", fontStyle: "italic" },
+    { tag: [t.name, t.variableName], color: "#e6edf3" },
+    { tag: [t.definition(t.variableName), t.function(t.variableName)], color: "#c792ea" },
+    { tag: [t.function(t.propertyName), t.propertyName], color: "#8bd5ff" },
+    { tag: [t.className, t.typeName, t.namespace], color: "#ffd166" },
+    { tag: [t.tagName, t.heading], color: "#00adb5", fontWeight: "700" },
+    { tag: [t.attributeName, t.labelName], color: "#8bd5ff" },
+    { tag: t.attributeValue, color: "#7ee787" },
+    { tag: [t.operator, t.punctuation, t.separator], color: "#94a3b2" },
+    { tag: [t.bracket, t.squareBracket, t.paren, t.brace], color: "#94a3b2" },
+    { tag: [t.invalid, t.deleted], color: "#ff7b72" },
+    { tag: t.inserted, color: "#7ee787" },
+    { tag: [t.link, t.url], color: "#00adb5", textDecoration: "underline" },
+    { tag: t.emphasis, fontStyle: "italic" },
+    { tag: t.strong, fontWeight: "700" },
+  ]);
+
+  const editorTheme = EditorView.theme({
+    "&": { height: "100%", backgroundColor: "var(--black)", color: "var(--text)" },
+    ".cm-scroller": { fontFamily: "inherit", lineHeight: "1.45" },
+    ".cm-content": { padding: "10px 12px", caretColor: "var(--accent)" },
+    ".cm-gutters": { backgroundColor: "var(--black)", color: "#5f6f80", borderRight: "1px solid var(--panel)" },
+    ".cm-activeLine": { backgroundColor: "rgba(26, 35, 45, 0.55)" },
+    ".cm-activeLineGutter": { backgroundColor: "rgba(26, 35, 45, 0.75)", color: "var(--text)" },
+    "&.cm-focused": { outline: "none" },
+    "&.cm-focused .cm-cursor": { borderLeftColor: "var(--accent)" },
+    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": { backgroundColor: "rgba(0, 173, 181, 0.35)" },
+    ".cm-search": { backgroundColor: "var(--panel)", color: "var(--text)", borderTop: "1px solid var(--panel)" },
+    ".cm-search input": { width: "auto", backgroundColor: "var(--surface)", color: "var(--text)", border: "1px solid var(--panel)" },
+    ".cm-search button": { minHeight: "24px", padding: "0 8px", color: "var(--text)", border: "1px solid var(--panel)", backgroundColor: "var(--surface)" },
+    ".cm-tooltip": { backgroundColor: "var(--panel)", color: "var(--text)", border: "1px solid var(--surface)" },
+  });
+
+  function readonlyExtensions(): Extension[] {
+    return [EditorState.readOnly.of(true), EditorView.editable.of(false)];
   }
 
-  function pushTextSnapshot(stack: TextSnapshot[], snapshot: TextSnapshot) {
-    if (sameTextSnapshot(stack.at(-1), snapshot)) return;
-    stack.push(snapshot);
-    if (stack.length > 100) stack.shift();
+  function languageForPath(path: string): Extension {
+    const lower = path.toLowerCase();
+    if (/\.(js|jsx|ts|tsx|mjs|cjs)$/.test(lower)) return javascript({ typescript: /\.(ts|tsx)$/.test(lower), jsx: /\.(jsx|tsx)$/.test(lower) });
+    if (/\.(html|svelte|xml|svg)$/.test(lower)) return html();
+    if (/\.(css|scss|sass|less)$/.test(lower)) return css();
+    if (/\.(json|jsonc)$/.test(lower)) return json();
+    if (/\.(md|markdown)$/.test(lower)) return markdown();
+    return [];
   }
 
-  function restoreSnapshot(target: HTMLTextAreaElement, snapshot: TextSnapshot) {
-    target.value = snapshot.value;
-    onChange(snapshot.value);
-    requestAnimationFrame(() => target.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd));
-  }
-
-  function rememberSnapshot(event: Event) {
-    pushTextSnapshot(undoStack, textSnapshot(event.currentTarget as HTMLTextAreaElement));
-    redoStack = [];
-  }
-
-  function input(event: Event) {
-    onChange((event.currentTarget as HTMLTextAreaElement).value);
-  }
-
-  function handleUndoRedo(event: KeyboardEvent) {
-    if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
-
-    const key = event.key.toLowerCase();
-    const undo = key === "z" && !event.shiftKey;
-    const redo = key === "y" || (key === "z" && event.shiftKey);
-    if (!undo && !redo) return false;
-
-    const target = event.currentTarget as HTMLTextAreaElement;
-    const from = undo ? undoStack : redoStack;
-    const to = undo ? redoStack : undoStack;
-    const snapshot = from.pop();
-    if (!snapshot) return true;
-
-    event.preventDefault();
-    pushTextSnapshot(to, textSnapshot(target));
-    restoreSnapshot(target, snapshot);
-    return true;
-  }
-
-  function keydown(event: KeyboardEvent) {
-    if (handleUndoRedo(event)) return;
-
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
-      event.preventDefault();
-      openFind();
-      return;
-    }
-
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-      event.preventDefault();
-      onSave();
-    }
-
-    if (event.key === "Tab") {
-      event.preventDefault();
-      const target = event.currentTarget as HTMLTextAreaElement;
-      pushTextSnapshot(undoStack, textSnapshot(target));
-      redoStack = [];
-      const start = target.selectionStart;
-      const end = target.selectionEnd;
-      const next = file.content.slice(0, start) + "  " + file.content.slice(end);
-      onChange(next);
-      requestAnimationFrame(() => {
-        target.selectionStart = target.selectionEnd = start + 2;
-      });
-    }
-  }
-
-  function openFind() {
-    findOpen = true;
-    findQuery = editorEl?.value.slice(editorEl.selectionStart, editorEl.selectionEnd) || findQuery;
-    updateFindCount();
-    requestAnimationFrame(() => findInputEl?.focus());
-  }
-
-  function closeFind() {
-    findOpen = false;
-    requestAnimationFrame(() => editorEl?.focus());
-  }
-
-  function updateFindCount() {
-    if (!findQuery) {
-      findCount = 0;
-      findIndex = -1;
-      return;
-    }
-    const text = file.content.toLowerCase();
-    const query = findQuery.toLowerCase();
-    let count = 0;
-    let index = text.indexOf(query);
-    while (index >= 0) {
-      count += 1;
-      index = text.indexOf(query, index + Math.max(query.length, 1));
-    }
-    findCount = count;
-  }
-
-  function findNext(reverse = false) {
-    updateFindCount();
-    if (!findQuery || !editorEl) return;
-    const text = file.content.toLowerCase();
-    const query = findQuery.toLowerCase();
-    const cursor = reverse ? editorEl.selectionStart - 1 : editorEl.selectionEnd;
-    let index = reverse ? text.lastIndexOf(query, Math.max(cursor, 0)) : text.indexOf(query, cursor);
-    if (index < 0) index = reverse ? text.lastIndexOf(query) : text.indexOf(query);
-    if (index < 0) return;
-    findIndex = index;
-    requestAnimationFrame(() => {
-      editorEl.focus();
-      editorEl.setSelectionRange(index, index + findQuery.length);
-      const line = file.content.slice(0, index).split("\n").length;
-      editorEl.scrollTop = Math.max(0, (line - 4) * 21);
+  async function ensureMergeView() {
+    if (mergeView || mergeOpening) return;
+    mergeOpening = true;
+    await tick();
+    mergeOpening = false;
+    if (!mergeHost || file.mode !== "diff" || mergeView) return;
+    const doc = currentDoc();
+    currentContent = doc;
+    mergeView = new MergeView({
+      a: { doc: file.original, extensions: editorExtensions(file.original, readonlyExtensions()) },
+      b: { doc, extensions: editorExtensions(doc) },
+      parent: mergeHost,
+      orientation: "a-b",
+      revertControls: "a-to-b",
+      highlightChanges: true,
+      gutter: true,
+      collapseUnchanged: { margin: 3, minSize: 8 },
     });
   }
 
-  function findKeydown(event: KeyboardEvent) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeFind();
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      findNext(event.shiftKey);
-    }
-  }
-
-  function makeDiff(oldText: string, newText: string) {
-    const oldLines = oldText.split("\n");
-    const newLines = newText.split("\n");
-    const max = Math.max(oldLines.length, newLines.length);
-    const lines: { kind: "same" | "add" | "del"; text: string }[] = [];
-
-    for (let i = 0; i < max; i++) {
-      const oldLine = oldLines[i];
-      const newLine = newLines[i];
-      if (oldLine === newLine) lines.push({ kind: "same", text: `  ${oldLine ?? ""}` });
-      else {
-        if (oldLine !== undefined) lines.push({ kind: "del", text: `- ${oldLine}` });
-        if (newLine !== undefined) lines.push({ kind: "add", text: `+ ${newLine}` });
+  function closeMergeView(commit: boolean) {
+    if (!mergeView) return;
+    if (commit) {
+      const doc = mergeView.b.state.doc.toString();
+      currentContent = doc;
+      if (view && view.state.doc.toString() !== doc) {
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } });
       }
     }
-    return lines;
+    mergeView.destroy();
+    mergeView = undefined;
+  }
+
+  function currentDoc() {
+    return mergeView?.b.state.doc.toString() ?? view?.state.doc.toString() ?? currentContent;
+  }
+
+  function resetEditor(content: string) {
+    closeMergeView(false);
+    currentContent = content;
+    syncedContent = content;
+    lastPropContent = content;
+    mountedPath = file.path;
+    localDirty = content !== file.original;
+    view?.setState(createState(content));
+    onDirtyChange(localDirty);
+  }
+
+  function handlePropContentChange() {
+    const content = file.content;
+    lastPropContent = content;
+    if (localDirty) return;
+    replaceDoc(content);
+  }
+
+  function replaceDoc(content: string) {
+    if (!view) return;
+    closeMergeView(false);
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: content } });
+    currentContent = content;
+    syncedContent = content;
+    updateDirty();
+  }
+
+  function updateDirty() {
+    const dirty = currentContent !== file.original;
+    if (dirty === localDirty) return;
+    localDirty = dirty;
+    onDirtyChange(dirty);
+  }
+
+  function flushContent() {
+    const doc = currentDoc();
+    currentContent = doc;
+    updateDirty();
+    if (doc === syncedContent) return;
+    syncedContent = doc;
+    onChange(doc);
+  }
+
+  function saveCurrent() {
+    flushContent();
+    onSave(currentContent);
+  }
+
+  function chooseMode(mode: "edit" | "diff") {
+    flushContent();
+    onMode(mode);
   }
 </script>
 
 <div class="editor-pane">
   <div class="editor-toolbar">
-    <span>{file.path}{file.dirty ? " *" : ""}{file.stale ? " !" : ""}</span>
+    <span>{file.path}{localDirty ? " *" : ""}{file.stale ? " !" : ""}</span>
+    <div class="status">
+      {#if !syntaxEnabled}<span>syntax off</span>{/if}
+      {#if largeFile}<span>large file</span>{/if}
+    </div>
     <div class="actions">
-      <button class:active={file.mode === "edit"} type="button" on:click={() => onMode("edit")}>edit</button>
-      <button class:active={file.mode === "diff"} type="button" on:click={() => onMode("diff")}>diff</button>
-      <button type="button" disabled={!file.dirty} on:click={onSave}>save</button>
+      <button class:active={file.mode === "edit"} type="button" on:click={() => chooseMode("edit")}>edit</button>
+      <button class:active={file.mode === "diff"} type="button" on:click={() => chooseMode("diff")}>merge</button>
+      <button type="button" disabled={!localDirty} on:click={saveCurrent}>save</button>
     </div>
   </div>
 
-  {#if file.mode === "edit"}
-    <div class="edit-wrap" class:with-find={findOpen}>
-      {#if findOpen}
-        <div class="findbar">
-          <input bind:this={findInputEl} bind:value={findQuery} placeholder="find" on:input={updateFindCount} on:keydown={findKeydown} />
-          <span>{findCount ? `${findCount} match${findCount === 1 ? "" : "es"}` : "no matches"}</span>
-          <button type="button" on:click={() => findNext(true)}>↑</button>
-          <button type="button" on:click={() => findNext(false)}>↓</button>
-          <button type="button" on:click={closeFind}>×</button>
-        </div>
-      {/if}
-      <textarea bind:this={editorEl} class="editor" value={file.content} spellcheck="false" on:beforeinput={rememberSnapshot} on:input={input} on:keydown={keydown}></textarea>
-    </div>
-  {:else}
-    <pre class="diff">{#each diff as line}<span class={line.kind}>{line.text}</span>{"\n"}{/each}</pre>
-  {/if}
+  <div class="edit-wrap" class:hidden={file.mode !== "edit"} bind:this={editorHost} on:focusout={flushContent}></div>
+  <div class="merge-wrap" class:hidden={file.mode !== "diff"} bind:this={mergeHost} on:focusout={flushContent}></div>
 </div>
 
 <style>
@@ -236,15 +281,27 @@
   }
 
   .editor-toolbar {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
-    justify-content: space-between;
     gap: 8px;
     padding: 8px 10px;
     border-bottom: 1px solid var(--panel);
     color: var(--muted);
     font-size: 12px;
     background: var(--panel);
+  }
+
+  .editor-toolbar > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .status {
+    display: flex;
+    gap: 6px;
+    color: var(--muted);
   }
 
   .actions {
@@ -262,77 +319,40 @@
     background: var(--surface);
   }
 
-  .edit-wrap {
+  .edit-wrap,
+  .merge-wrap {
     height: 100%;
     min-height: 0;
     overflow: hidden;
-    display: grid;
-    grid-template-rows: minmax(0, 1fr);
   }
 
-  .edit-wrap.with-find {
-    grid-template-rows: auto minmax(0, 1fr);
+  .hidden {
+    display: none;
   }
 
-  .findbar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
-    align-items: center;
-    gap: 6px;
-    padding: 6px;
-    border-bottom: 1px solid var(--panel);
-    background: var(--panel);
-  }
-
-  .findbar input {
-    min-height: 28px;
-    padding: 4px 8px;
-  }
-
-  .findbar span {
-    color: var(--muted);
-    font-size: 12px;
-    white-space: nowrap;
-  }
-
-  .editor {
-    width: 100%;
+  .merge-wrap :global(.cm-mergeView) {
     height: 100%;
-    min-height: 0;
-    max-height: none;
     overflow: auto;
-    resize: none;
-    border: 0;
-    border-left: 0;
     background: var(--black);
-    line-height: 1.45;
-    tab-size: 2;
   }
 
-  .diff {
-    min-height: 0;
-    margin: 0;
-    overflow: auto;
-    padding: 10px 12px;
-    color: var(--text);
-    background: var(--black);
-    line-height: 1.45;
-    white-space: pre-wrap;
+  .merge-wrap :global(.cm-mergeViewEditors) {
+    height: 100%;
   }
 
-  .diff span {
-    display: block;
+  .merge-wrap :global(.cm-mergeView .cm-editor) {
+    min-width: 0;
   }
 
-  .add {
-    color: var(--accent);
+  .merge-wrap :global(.cm-changedLine) {
+    background: rgba(0, 173, 181, 0.1);
   }
 
-  .del {
-    color: var(--danger);
+  .merge-wrap :global(.cm-deletedChunk) {
+    background: rgba(232, 69, 69, 0.12);
   }
 
-  .same {
-    color: var(--muted);
+  .merge-wrap :global(.cm-insertedLine) {
+    background: rgba(0, 173, 181, 0.14);
   }
 </style>
