@@ -173,7 +173,7 @@ impl ChatRuntime {
     pub fn delete_workspace(&self, request: WorkspaceRequest) -> Result<SessionInfo, String> {
         let workspace = normalize_workspace(request.path)?;
         if workspace == default_workspace() {
-            return Err("home workspace cannot be deleted".into());
+            return Err("default workspace cannot be deleted".into());
         }
         remove_workspace(&workspace)?;
         let _ = fs::remove_dir_all(workspace_sessions_dir(&workspace));
@@ -1289,11 +1289,9 @@ fn clean_path(path: String) -> Result<PathBuf, String> {
 }
 
 fn default_workspace() -> PathBuf {
-    dirs::home_dir()
-        .or_else(|| env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."))
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from("."))
+    let path = config_dir().join("empty-workspace");
+    fs::create_dir_all(&path).ok();
+    path.canonicalize().unwrap_or(path)
 }
 
 fn config_dir() -> PathBuf {

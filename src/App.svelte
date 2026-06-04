@@ -3,6 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { open } from "@tauri-apps/plugin-dialog";
   import Checkbox from "./components/Checkbox.svelte";
   import DiffPane, { type DiffTab } from "./components/DiffPane.svelte";
   import EditorPane, { type OpenFile } from "./components/EditorPane.svelte";
@@ -106,6 +107,9 @@
   let streamMessageOpen = false;
   let files: FileEntry[] = [];
   let fileIndex: FileEntry[] = [];
+  let fileIndexLoaded = false;
+  let fileIndexing = false;
+  let fileIndexTimer = 0;
   let expandedDirs = new Set<string>();
   let loadedDirs = new Set<string>();
   let fileTreeVersion = 0;
@@ -661,15 +665,36 @@
   }
 
   async function loadFiles() {
-    const [tree, index] = await Promise.all([
-      invoke<FileEntry[]>("workspace_tree"),
-      invoke<FileEntry[]>("workspace_index"),
-    ]);
-    files = tree;
-    fileIndex = index;
+    files = await invoke<FileEntry[]>("workspace_tree");
+    fileIndex = [];
+    fileIndexLoaded = false;
     expandedDirs = new Set();
     loadedDirs = new Set();
     fileTreeVersion += 1;
+  }
+
+  async function ensureFileIndex() {
+    if (fileIndexLoaded || fileIndexing) return;
+    fileIndexing = true;
+    try {
+      fileIndex = await invoke<FileEntry[]>("workspace_index");
+      fileIndexLoaded = true;
+    } catch (error) {
+      addMessage("error", String(error));
+      fileIndex = [];
+    } finally {
+      fileIndexing = false;
+    }
+  }
+
+  function inputFileQuery(event: Event) {
+    fileQuery = (event.currentTarget as HTMLInputElement).value;
+    if (fileIndexTimer) window.clearTimeout(fileIndexTimer);
+    if (!fileQuery.trim() || fileIndexLoaded) return;
+    fileIndexTimer = window.setTimeout(() => {
+      fileIndexTimer = 0;
+      void ensureFileIndex();
+    }, 250);
   }
 
   async function runContentSearch() {
@@ -925,6 +950,15 @@
   }
 
 
+  async function chooseWorkspaceFolder() {
+    try {
+      const selected = await open({ directory: true, multiple: false, title: "Select workspace" });
+      if (typeof selected === "string") workspaceDraft = selected;
+    } catch (error) {
+      addMessage("error", String(error));
+    }
+  }
+
   async function selectWorkspace(path: string) {
     busy = true;
     try {
@@ -1096,6 +1130,7 @@
       window.clearInterval(poll);
       if (streamFrame) cancelAnimationFrame(streamFrame);
       if (fileChangeTimer) window.clearTimeout(fileChangeTimer);
+      if (fileIndexTimer) window.clearTimeout(fileIndexTimer);
       window.removeEventListener("keydown", globalKeydown);
       void invoke("file_watch_stop");
       unlistenChat?.();
@@ -1138,8 +1173,9 @@
         </div>
 
         {#if sideTab === "files"}
-          <input class="side-search" bind:value={fileQuery} placeholder="search" />
-          {#key `${workspace}:${fileTreeVersion}`}
+          <input class="side-search" value={fileQuery} on:input={inputFileQuery} placeholder="search" />
+          {#if fileIndexing}<span class="empty-state">indexing...</span>{/if}
+          {#key `${workspace}:${fileTreeVersion}:${fileIndexLoaded}`}
             <FileTree entries={visibleFiles} expandedPaths={expandedFilePaths} onOpen={openFile} />
           {/key}
         {:else if sideTab === "content" && featureContentSearch}
@@ -1263,11 +1299,14 @@
       {:else}
         <label>
           Path
-          <input bind:value={workspaceDraft} placeholder="~/code/project" />
+          <div class="inline-row">
+            <input bind:value={workspaceDraft} placeholder="~/code/project" />
+            <button class="ghost compact" type="button" on:click={() => void chooseWorkspaceFolder()}>browse</button>
+          </div>
         </label>
         <div class="actions right">
           <button class="ghost" type="button" on:click={() => (addingWorkspace = false)}>back</button>
-          <button type="button" disabled={busy} on:click={() => void selectWorkspace(workspaceDraft)}>save workspace</button>
+          <button type="button" disabled={busy || !workspaceDraft.trim()} on:click={() => void selectWorkspace(workspaceDraft)}>save workspace</button>
         </div>
       {/if}
     </Modal>
