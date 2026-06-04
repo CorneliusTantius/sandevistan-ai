@@ -31,6 +31,11 @@ fn ai_set_feature(update: ai::FeatureUpdate) -> Result<ai::AiConfig, String> {
 }
 
 #[tauri::command]
+fn ai_set_ui_scale(update: ai::UiScaleUpdate) -> Result<ai::AiConfig, String> {
+    ai::set_ui_scale(update)
+}
+
+#[tauri::command]
 fn ai_set_mods(update: ai::ModsUpdate) -> Result<ai::AiConfig, String> {
     ai::set_mods(update)
 }
@@ -262,6 +267,7 @@ pub fn run() {
             ai_save_config,
             ai_delete_model,
             ai_set_feature,
+            ai_set_ui_scale,
             ai_set_mods,
             ai_set_active_profile,
             ai_save_agent,
