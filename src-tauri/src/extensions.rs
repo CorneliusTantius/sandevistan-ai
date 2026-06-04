@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -14,11 +14,69 @@ struct ExtensionsConfig {
     enabled: Option<Vec<String>>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct ExtensionsInfo {
+    pub config_path: String,
+    pub extensions: Vec<ExtensionInfo>,
+    pub skills: Vec<SkillInfo>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExtensionInfo {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    pub removable: bool,
+    pub description: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SkillInfo {
+    pub name: String,
+    pub description: String,
+    pub path: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct SkillSummary {
     pub name: String,
     pub description: String,
     pub path: PathBuf,
+}
+
+pub fn info(workspace: &Path) -> ExtensionsInfo {
+    let skills_enabled = skills_enabled();
+    ExtensionsInfo {
+        config_path: config_dir().join(EXTENSIONS_FILE).display().to_string(),
+        extensions: vec![
+            ExtensionInfo {
+                id: "skills".into(),
+                name: "Skills".into(),
+                enabled: skills_enabled,
+                removable: true,
+                description: "Agent Skills discovery + skill.list/skill.load tools".into(),
+            },
+            ExtensionInfo {
+                id: "mcp".into(),
+                name: "MCP".into(),
+                enabled: mcp_enabled(),
+                removable: true,
+                description: "MCP extension slot; protocol client not configured yet".into(),
+            },
+        ],
+        skills: if skills_enabled {
+            discover_skills(workspace)
+                .into_iter()
+                .map(|skill| SkillInfo {
+                    name: skill.name,
+                    description: skill.description,
+                    path: skill.path.display().to_string(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        },
+    }
 }
 
 pub fn skills_enabled() -> bool {
