@@ -847,15 +847,20 @@
     openFiles = openFiles.map((file) => file.path === path ? { ...file, content, dirty: content !== file.original } : file);
   }
 
+  function setOpenFileDirty(path: string, dirty: boolean) {
+    openFiles = openFiles.map((file) => file.path === path ? { ...file, dirty } : file);
+  }
+
   function setFileMode(path: string, mode: "edit" | "diff") {
     openFiles = openFiles.map((file) => file.path === path ? { ...file, mode } : file);
   }
 
-  async function saveOpenFile(path: string) {
+  async function saveOpenFile(path: string, content?: string) {
     const file = openFiles.find((item) => item.path === path);
     if (!file) return;
+    const nextContent = content ?? file.content;
     try {
-      const saved = await invoke<{ path: string; content: string }>("file_save", { request: { path, content: file.content } });
+      const saved = await invoke<{ path: string; content: string }>("file_save", { request: { path, content: nextContent } });
       openFiles = openFiles.map((item) => item.path === path ? { ...item, content: saved.content, original: saved.content, dirty: false, stale: false } : item);
       await loadFiles();
     } catch (error) {
@@ -1129,9 +1134,12 @@
           </div>
           <div class="compact-list">
             {#each contentResults as hit (`${hit.path}:${hit.line}:${hit.column}`)}
-              <button class="result-row" type="button" title={hit.text} on:click={() => void openSearchHit(hit)}>
-                <strong>{hit.path}:{hit.line}</strong>
-                <span>{hit.text}</span>
+              <button class="content-result" type="button" title={`${hit.path}:${hit.line}:${hit.column}\n${hit.text}`} on:click={() => void openSearchHit(hit)}>
+                <div class="result-file">
+                  <span>{fileName(hit.path)}</span>
+                  <small>L{hit.line}:C{hit.column}</small>
+                </div>
+                <div class="result-line">{hit.text.trim() || " "}</div>
               </button>
             {:else}
               <span class="empty-state">{contentQuery.trim() ? "no matches found" : "type query + press Enter"}</span>
@@ -1184,6 +1192,18 @@
         {/each}
       </div>
 
+      {#each openFiles as file (file.path)}
+        <section class="editor-slot" class:hidden-pane={activeTab !== file.path}>
+          <EditorPane
+            {file}
+            onChange={(content) => updateOpenFile(file.path, content)}
+            onDirtyChange={(dirty) => setOpenFileDirty(file.path, dirty)}
+            onMode={(mode) => setFileMode(file.path, mode)}
+            onSave={(content) => void saveOpenFile(file.path, content)}
+          />
+        </section>
+      {/each}
+
       {#if activeTab === "chat" && chatOpen}
       <section class="chat" aria-label="AI chat">
         <div class="messages" bind:this={messagesEl}>
@@ -1205,18 +1225,10 @@
       </section>
       {:else if activeTab === "terminal" && terminalOpen}
         <TerminalPane id={terminalId} />
-      {:else if openFiles.find((file) => file.path === activeTab)}
-        {@const file = openFiles.find((file) => file.path === activeTab)!}
-        <EditorPane
-          {file}
-          onChange={(content) => updateOpenFile(file.path, content)}
-          onMode={(mode) => setFileMode(file.path, mode)}
-          onSave={() => void saveOpenFile(file.path)}
-        />
       {:else if diffTabs.find((tab) => tab.id === activeTab)}
         {@const tab = diffTabs.find((tab) => tab.id === activeTab)!}
         <DiffPane {tab} />
-      {:else}
+      {:else if !openFiles.find((file) => file.path === activeTab)}
         <section class="empty-editor">open file, terminal, or chat tab</section>
       {/if}
     </section>

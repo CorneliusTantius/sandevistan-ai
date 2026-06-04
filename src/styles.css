@@ -256,6 +256,66 @@ h2 {
   font-size: 12px;
 }
 
+.content-result {
+  width: 100%;
+  min-height: 58px;
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 6px;
+  padding: 8px 10px;
+  color: var(--text);
+  border: 1px solid var(--panel);
+  background: var(--surface);
+  font-weight: 400;
+  text-align: left;
+  text-transform: none;
+}
+
+.content-result:hover,
+.content-result:focus-visible {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--bg);
+  outline: none;
+}
+
+.content-result .result-file {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.content-result .result-file span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-result .result-file small {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.content-result .result-line {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .feature-list {
   display: grid;
   gap: 8px;
@@ -348,6 +408,15 @@ h2 {
   color: var(--muted);
   border: 1px solid var(--panel);
   background: var(--panel);
+}
+
+.editor-slot {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.hidden-pane {
+  display: none;
 }
 
 .chat {
