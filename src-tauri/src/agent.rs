@@ -1,6 +1,6 @@
 use crate::{
     ai::{self, ChatMessage},
-    context, tools,
+    context, subagent, tools,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -113,6 +113,12 @@ struct AppConfig {
     active_workspace: Option<String>,
     workspaces: Option<Vec<String>>,
     features: Option<HashMap<String, bool>>,
+    active_profile: Option<String>,
+    profiles: Option<HashMap<String, toml::Value>>,
+    persona: Option<String>,
+    thinking_level: Option<String>,
+    prompt_injection: Option<String>,
+    rtk_enabled: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -336,8 +342,18 @@ impl ChatRuntime {
         let messages = file.messages;
         let task_id = new_id();
         let tasks = self.tasks.clone();
+        let mods = ai::active_mods();
+        let prompt_config = ai::prompt_config();
         let handle = tauri::async_runtime::spawn(async move {
-            let result = run_agent_loop(&app, &workspace, &task_session_id, messages).await;
+            let result = run_agent_loop(
+                &app,
+                &workspace,
+                &task_session_id,
+                messages,
+                mods,
+                prompt_config,
+            )
+            .await;
             if let Err(error) = &result {
                 emit_stream_error(&app, &task_session_id, error);
             }
@@ -417,15 +433,20 @@ async fn run_agent_loop(
     workspace: &PathBuf,
     session_id: &str,
     mut messages: Vec<ChatMessage>,
+    mods: ai::ModelMods,
+    prompt_config: context::PromptConfig,
 ) -> Result<Vec<ChatMessage>, String> {
     let mods_prompt = ai::mods_prompt();
+    let base_prompt = tools::prompt_with_subagents(
+        mods.subagents_enabled && !mods.subagents.is_empty(),
+        &mods.subagents,
+        mods.shell_enabled,
+    );
     let system_prompt = if mods_prompt.is_empty() {
-        tools::prompt()
+        base_prompt
     } else {
-        format!("{}\n\n{}", tools::prompt(), mods_prompt)
+        format!("{}\n\n{}", base_prompt, mods_prompt)
     };
-    let prompt_config = ai::prompt_config();
-    let rtk_enabled = ai::active_mods().rtk_enabled;
     let summary = tokio::time::timeout(
         SUMMARY_TIMEOUT,
         update_session_summary(workspace, session_id, &messages),
@@ -435,6 +456,26 @@ async fn run_agent_loop(
     .and_then(Result::ok)
     .unwrap_or_else(|| load_session_summary(workspace, session_id).unwrap_or_default())
     .summary;
+    if should_ping_subagents(&messages, &mods) {
+        let calls = vec![tools::ToolCall {
+            name: "agent.delegate".into(),
+            args: serde_json::json!({
+                "tasks": mods.subagents.iter().map(|agent| serde_json::json!({
+                    "agent": agent,
+                    "task": "Ping back with your subagent name and one concise status line. Do not use tools unless needed."
+                })).collect::<Vec<_>>()
+            }),
+        }];
+        let tool_contents = run_tool_calls(workspace, calls, mods.clone()).await;
+        for tool_content in tool_contents {
+            emit_stream_tool(app, session_id, &tool_content);
+            messages.push(ChatMessage {
+                role: "tool".into(),
+                content: tool_content,
+            });
+        }
+    }
+
     let mut tool_call_counts: HashMap<String, usize> = HashMap::new();
     loop {
         let prompt =
@@ -442,24 +483,25 @@ async fn run_agent_loop(
 
         let mut streamed = false;
         let mut pending = String::new();
-        let content = ai::complete_chat_stream(prompt, |delta| {
-            if streamed {
-                emit_stream_delta(app, session_id, &delta);
-                return;
-            }
+        let content =
+            ai::complete_chat_stream_model(prompt, Some(mods.main_model.clone()), |delta| {
+                if streamed {
+                    emit_stream_delta(app, session_id, &delta);
+                    return;
+                }
 
-            pending.push_str(&delta);
-            let trimmed = pending.trim_start();
-            if "<tool_call>".starts_with(trimmed) || trimmed.starts_with("<tool_call>") {
-                return;
-            }
+                pending.push_str(&delta);
+                let trimmed = pending.trim_start();
+                if "<tool_call>".starts_with(trimmed) || trimmed.starts_with("<tool_call>") {
+                    return;
+                }
 
-            streamed = true;
-            emit_stream_start(app, session_id);
-            emit_stream_delta(app, session_id, &pending);
-            pending.clear();
-        })
-        .await?;
+                streamed = true;
+                emit_stream_start(app, session_id);
+                emit_stream_delta(app, session_id, &pending);
+                pending.clear();
+            })
+            .await?;
         let calls = tools::parse_tool_calls(&content);
         if !calls.is_empty() {
             for call in &calls {
@@ -471,7 +513,7 @@ async fn run_agent_loop(
                 }
             }
 
-            let tool_contents = run_tool_calls(workspace, calls, rtk_enabled).await;
+            let tool_contents = run_tool_calls(workspace, calls, mods.clone()).await;
             for tool_content in tool_contents {
                 emit_stream_tool(app, session_id, &tool_content);
                 messages.push(ChatMessage {
@@ -494,16 +536,30 @@ async fn run_agent_loop(
     }
 }
 
+fn should_ping_subagents(messages: &[ChatMessage], mods: &ai::ModelMods) -> bool {
+    if !mods.subagents_enabled || mods.subagents.is_empty() {
+        return false;
+    }
+    let Some(message) = messages.last() else {
+        return false;
+    };
+    if message.role != "user" {
+        return false;
+    }
+    let content = message.content.to_lowercase();
+    content.contains("ping") && content.contains("subagent")
+}
+
 async fn run_tool_calls(
     workspace: &PathBuf,
     calls: Vec<tools::ToolCall>,
-    rtk_enabled: bool,
+    mods: ai::ModelMods,
 ) -> Vec<String> {
     if calls.iter().any(tools::is_mutating) {
         let mut results = Vec::new();
         for call in calls {
             let name = call.name.clone();
-            let output = run_tool_blocking(workspace.clone(), call, rtk_enabled).await;
+            let output = run_tool_call(workspace.clone(), call, mods.clone()).await;
             results.push(format!("{name}\n{output}"));
         }
         return results;
@@ -513,9 +569,10 @@ async fn run_tool_calls(
     let mut parallel = Vec::new();
     for (index, call) in calls.into_iter().enumerate() {
         let workspace = workspace.clone();
+        let mods = mods.clone();
         parallel.push(tauri::async_runtime::spawn(async move {
             let name = call.name.clone();
-            let output = run_tool_blocking(workspace, call, rtk_enabled).await;
+            let output = run_tool_call(workspace, call, mods).await;
             (index, format!("{name}\n{output}"))
         }));
     }
@@ -530,11 +587,30 @@ async fn run_tool_calls(
     results.into_iter().map(|(_, content)| content).collect()
 }
 
-async fn run_tool_blocking(workspace: PathBuf, call: tools::ToolCall, rtk_enabled: bool) -> String {
+async fn run_tool_call(workspace: PathBuf, call: tools::ToolCall, mods: ai::ModelMods) -> String {
+    if subagent::is_delegate(&call) {
+        return subagent::run_delegate(workspace, call.args, mods.clone(), mods.rtk_enabled).await;
+    }
+    run_tool_blocking(workspace, call, mods.rtk_enabled, mods.shell_enabled).await
+}
+
+async fn run_tool_blocking(
+    workspace: PathBuf,
+    call: tools::ToolCall,
+    rtk_enabled: bool,
+    shell_enabled: bool,
+) -> String {
     match tokio::time::timeout(
         TOOL_EXECUTION_TIMEOUT,
         tauri::async_runtime::spawn_blocking(move || {
-            tools::run_with_options(&workspace, &call, tools::ToolOptions { rtk_enabled })
+            tools::run_with_options(
+                &workspace,
+                &call,
+                tools::ToolOptions {
+                    rtk_enabled,
+                    shell_enabled,
+                },
+            )
         }),
     )
     .await

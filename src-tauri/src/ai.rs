@@ -34,12 +34,23 @@ pub struct FeatureUpdate {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ActiveProfileUpdate {
+    profile: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ModsUpdate {
     profile: Option<String>,
-    persona: Option<String>,
-    thinking_level: Option<String>,
-    prompt_injection: Option<String>,
+    main_model: Option<String>,
+    main_agent: Option<String>,
+    subagents: Option<Vec<String>>,
     rtk_enabled: Option<bool>,
+    shell_enabled: Option<bool>,
+    git_panel_enabled: Option<bool>,
+    subagents_enabled: Option<bool>,
+    subagent_model: Option<String>,
+    subagent_max_concurrency: Option<usize>,
+    subagents_config: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -57,6 +68,8 @@ pub struct AiConfig {
     mods: ModelMods,
     active_profile: String,
     profiles: Vec<ProfileOption>,
+    agents: Vec<AgentOption>,
+    subagents_registry: Vec<SubagentOption>,
     rtk_available: bool,
 }
 
@@ -75,20 +88,66 @@ pub struct ModelOption {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct AgentOption {
+    name: String,
+    description: String,
+    persona: String,
+    thinking_level: String,
+    prompt_injection: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SubagentOption {
+    name: String,
+    description: String,
+    system: String,
+    model: String,
+    max_result_chars: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SubagentDef {
+    pub name: String,
+    pub description: Option<String>,
+    pub system: String,
+    pub model: Option<String>,
+    pub max_result_chars: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ModelMods {
+    pub main_model: String,
+    pub main_agent: String,
+    pub subagents: Vec<String>,
     pub persona: String,
     pub thinking_level: String,
     pub prompt_injection: String,
     pub rtk_enabled: bool,
+    pub shell_enabled: bool,
+    pub git_panel_enabled: bool,
+    pub subagents_enabled: bool,
+    pub subagent_model: String,
+    pub subagent_max_concurrency: usize,
+    pub subagents_config: String,
+    pub subagents_registry: Vec<SubagentDef>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProfileOption {
     name: String,
+    main_model: String,
+    main_agent: String,
+    subagents: Vec<String>,
     persona: String,
     thinking_level: String,
     prompt_injection: String,
     rtk_enabled: bool,
+    shell_enabled: bool,
+    git_panel_enabled: bool,
+    subagents_enabled: bool,
+    subagent_model: String,
+    subagent_max_concurrency: usize,
+    subagents_config: String,
 }
 
 #[derive(Debug)]
@@ -123,10 +182,41 @@ struct AppConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct ProfileConfig {
+    main_model: Option<String>,
+    main_agent: Option<String>,
+    subagents: Option<Vec<String>>,
     persona: Option<String>,
     thinking_level: Option<String>,
     prompt_injection: Option<String>,
     rtk_enabled: Option<bool>,
+    shell_enabled: Option<bool>,
+    git_panel_enabled: Option<bool>,
+    subagents_enabled: Option<bool>,
+    subagent_model: Option<String>,
+    subagent_max_concurrency: Option<usize>,
+    subagents_config: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+struct AgentsConfig {
+    agents: HashMap<String, AgentConfig>,
+    subagents: HashMap<String, SubagentConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct AgentConfig {
+    description: Option<String>,
+    persona: Option<String>,
+    thinking_level: Option<String>,
+    prompt_injection: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct SubagentConfig {
+    description: Option<String>,
+    system: String,
+    model: Option<String>,
+    max_result_chars: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -159,6 +249,36 @@ struct ProviderAuth {
     api_key: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AgentUpdate {
+    name: String,
+    original_name: Option<String>,
+    description: Option<String>,
+    persona: Option<String>,
+    thinking_level: Option<String>,
+    prompt_injection: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteAgentRequest {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubagentUpdate {
+    name: String,
+    original_name: Option<String>,
+    description: Option<String>,
+    system: String,
+    model: Option<String>,
+    max_result_chars: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteSubagentRequest {
+    name: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ChatMessage {
     pub role: String,
@@ -168,6 +288,7 @@ pub struct ChatMessage {
 pub fn config() -> AiConfig {
     let runtime = runtime_config();
     let models = read_toml::<ModelsConfig>(runtime.config_dir.join("models.toml"));
+    let agents = read_toml::<AgentsConfig>(runtime.config_dir.join("agents.toml"));
     AiConfig {
         config_dir: runtime.config_dir.display().to_string(),
         provider: runtime.provider,
@@ -182,8 +303,24 @@ pub fn config() -> AiConfig {
         mods: runtime.mods,
         active_profile: runtime.active_profile,
         profiles: profile_options(),
+        agents: agent_options(&agents),
+        subagents_registry: subagent_options(&agents),
         rtk_available: rtk_available(),
     }
+}
+
+pub fn set_active_profile(update: ActiveProfileUpdate) -> Result<AiConfig, String> {
+    let profile = clean_required(update.profile, "profile")?;
+    let config_dir = config_dir();
+    ensure_config_files(&config_dir);
+    let path = config_dir.join("config.toml");
+    let mut app = read_toml::<AppConfig>(path.clone());
+    if !normalized_profiles(&app).contains_key(&profile) {
+        return Err("profile not found".into());
+    }
+    app.active_profile = Some(profile);
+    write_toml(path, &app)?;
+    Ok(config())
 }
 
 pub fn set_mods(update: ModsUpdate) -> Result<AiConfig, String> {
@@ -198,6 +335,45 @@ pub fn set_mods(update: ModsUpdate) -> Result<AiConfig, String> {
     profiles.insert(
         profile.clone(),
         ProfileConfig {
+            main_model: update.main_model.and_then(clean_optional),
+            main_agent: update.main_agent.and_then(clean_optional),
+            subagents: update.subagents.map(clean_subagents),
+            persona: None,
+            thinking_level: None,
+            prompt_injection: None,
+            rtk_enabled: update.rtk_enabled,
+            shell_enabled: update.shell_enabled,
+            git_panel_enabled: update.git_panel_enabled,
+            subagents_enabled: update.subagents_enabled,
+            subagent_model: update.subagent_model.and_then(clean_optional),
+            subagent_max_concurrency: update
+                .subagent_max_concurrency
+                .map(clean_subagent_concurrency),
+            subagents_config: update.subagents_config.and_then(clean_optional),
+        },
+    );
+    app.active_profile = Some(profile);
+    app.profiles = Some(profiles);
+
+    write_toml(path, &app)?;
+    Ok(config())
+}
+
+pub fn save_agent(update: AgentUpdate) -> Result<AiConfig, String> {
+    let name = clean_required(update.name, "agent")?;
+    let original = update.original_name.and_then(clean_optional);
+    let config_dir = config_dir();
+    ensure_config_files(&config_dir);
+    let path = config_dir.join("agents.toml");
+    let mut agents = read_toml::<AgentsConfig>(path.clone());
+    if let Some(original) = original.filter(|original| original != &name) {
+        agents.agents.remove(&original);
+        rename_profile_agent(&config_dir, &original, &name)?;
+    }
+    agents.agents.insert(
+        name,
+        AgentConfig {
+            description: update.description.and_then(clean_optional),
             persona: update.persona.and_then(clean_optional),
             thinking_level: Some(clean_thinking_level(
                 &update
@@ -205,13 +381,63 @@ pub fn set_mods(update: ModsUpdate) -> Result<AiConfig, String> {
                     .unwrap_or_else(|| DEFAULT_THINKING_LEVEL.into()),
             )?),
             prompt_injection: update.prompt_injection.and_then(clean_optional),
-            rtk_enabled: update.rtk_enabled,
         },
     );
-    app.active_profile = Some(profile);
-    app.profiles = Some(profiles);
+    write_toml(path, &agents)?;
+    Ok(config())
+}
 
-    write_toml(path, &app)?;
+pub fn delete_agent(request: DeleteAgentRequest) -> Result<AiConfig, String> {
+    let name = clean_required(request.name, "agent")?;
+    if name == "custom" {
+        return Err("custom agent cannot be deleted".into());
+    }
+    let config_dir = config_dir();
+    ensure_config_files(&config_dir);
+    let path = config_dir.join("agents.toml");
+    let mut agents = read_toml::<AgentsConfig>(path.clone());
+    agents.agents.remove(&name);
+    write_toml(path, &agents)?;
+    rename_profile_agent(&config_dir, &name, "custom")?;
+    Ok(config())
+}
+
+pub fn save_subagent(update: SubagentUpdate) -> Result<AiConfig, String> {
+    let name = clean_required(update.name, "subagent")?;
+    let system = clean_required(update.system, "subagent system")?;
+    let original = update.original_name.and_then(clean_optional);
+    let config_dir = config_dir();
+    ensure_config_files(&config_dir);
+    let path = config_dir.join("agents.toml");
+    let mut agents = read_toml::<AgentsConfig>(path.clone());
+    if let Some(original) = original.filter(|original| original != &name) {
+        agents.subagents.remove(&original);
+        rename_profile_subagent(&config_dir, &original, &name)?;
+    }
+    agents.subagents.insert(
+        name,
+        SubagentConfig {
+            description: update.description.and_then(clean_optional),
+            system,
+            model: update.model.and_then(clean_optional),
+            max_result_chars: update
+                .max_result_chars
+                .map(|value| value.clamp(500, 20_000)),
+        },
+    );
+    write_toml(path, &agents)?;
+    Ok(config())
+}
+
+pub fn delete_subagent(request: DeleteSubagentRequest) -> Result<AiConfig, String> {
+    let name = clean_required(request.name, "subagent")?;
+    let config_dir = config_dir();
+    ensure_config_files(&config_dir);
+    let path = config_dir.join("agents.toml");
+    let mut agents = read_toml::<AgentsConfig>(path.clone());
+    agents.subagents.remove(&name);
+    write_toml(path, &agents)?;
+    remove_profile_subagent(&config_dir, &name)?;
     Ok(config())
 }
 
@@ -249,6 +475,13 @@ pub fn delete_model(request: DeleteModelRequest) -> Result<AiConfig, String> {
             .and_then(|next| models.models.get(next))
             .and_then(|next| next.provider.clone());
     }
+    let mut profiles = normalized_profiles(&app);
+    for profile in profiles.values_mut() {
+        if profile.main_model.as_deref() == Some(model.as_str()) {
+            profile.main_model = app.default_model.clone();
+        }
+    }
+    app.profiles = Some(profiles);
 
     write_toml(config_dir.join("config.toml"), &app)?;
     write_toml(config_dir.join("models.toml"), &models)?;
@@ -266,6 +499,13 @@ pub fn save_config(update: AiConfigUpdate) -> Result<AiConfig, String> {
     let mut app = read_toml::<AppConfig>(config_dir.join("config.toml"));
     app.default_provider = Some(provider.clone());
     app.default_model = Some(model.clone());
+    let active_profile = active_profile_name(&app);
+    let mut profiles = normalized_profiles(&app);
+    if let Some(profile) = profiles.get_mut(&active_profile) {
+        profile.main_model = Some(model.clone());
+    }
+    app.active_profile = Some(active_profile);
+    app.profiles = Some(profiles);
 
     let mut models = read_toml::<ModelsConfig>(config_dir.join("models.toml"));
     models.providers.insert(
@@ -319,14 +559,23 @@ pub async fn complete_chat(messages: Vec<ChatMessage>) -> Result<String, String>
     provider::complete(runtime, messages).await
 }
 
-pub async fn complete_chat_stream<F>(
+pub async fn complete_chat_model(
     messages: Vec<ChatMessage>,
+    model: Option<String>,
+) -> Result<String, String> {
+    let (runtime, messages) = runtime_request_for_model(messages, model)?;
+    provider::complete(runtime, messages).await
+}
+
+pub async fn complete_chat_stream_model<F>(
+    messages: Vec<ChatMessage>,
+    model: Option<String>,
     on_delta: F,
 ) -> Result<String, String>
 where
     F: FnMut(String),
 {
-    let (runtime, messages) = runtime_request(messages)?;
+    let (runtime, messages) = runtime_request_for_model(messages, model)?;
     provider::complete_stream(runtime, messages, on_delta).await
 }
 
@@ -369,11 +618,18 @@ pub fn mods_prompt() -> String {
 fn runtime_request(
     messages: Vec<ChatMessage>,
 ) -> Result<(ProviderRuntime, Vec<ChatMessage>), String> {
+    runtime_request_for_model(messages, None)
+}
+
+fn runtime_request_for_model(
+    messages: Vec<ChatMessage>,
+    model_override: Option<String>,
+) -> Result<(ProviderRuntime, Vec<ChatMessage>), String> {
     if messages.is_empty() {
         return Err("messages are empty".into());
     }
 
-    let config = runtime_config();
+    let config = runtime_config_for_model(model_override);
     if config.api_key.is_none() && config.api_base == DEFAULT_API_BASE {
         return Err(format!(
             "missing api key: set SANDEVISTAN_API_KEY or ~/.sandevistan/auth.toml for provider '{}'",
@@ -427,6 +683,10 @@ fn default_features() -> HashMap<String, bool> {
 }
 
 fn runtime_config() -> RuntimeConfig {
+    runtime_config_for_model(None)
+}
+
+fn runtime_config_for_model(model_override: Option<String>) -> RuntimeConfig {
     let config_dir = config_dir();
     ensure_config_files(&config_dir);
 
@@ -434,7 +694,14 @@ fn runtime_config() -> RuntimeConfig {
     let models = read_toml::<ModelsConfig>(config_dir.join("models.toml"));
     let auth = read_toml::<AuthConfig>(config_dir.join("auth.toml"));
 
-    let model = env_value("SANDEVISTAN_MODEL")
+    let active_profile = active_profile_name(&app);
+    let profile_model = normalized_profiles(&app)
+        .get(&active_profile)
+        .and_then(|profile| profile.main_model.clone());
+    let model = model_override
+        .and_then(clean_optional)
+        .or_else(|| env_value("SANDEVISTAN_MODEL"))
+        .or(profile_model)
         .or_else(|| app.default_model.clone())
         .unwrap_or_else(|| DEFAULT_MODEL.into());
     let model_entry = models.models.get(&model);
@@ -479,8 +746,8 @@ fn runtime_config() -> RuntimeConfig {
             .and_then(|model| model.context_chars)
             .unwrap_or(context::DEFAULT_CONTEXT_CHARS),
     );
-    let active_profile = active_profile_name(&app);
-    let mods = model_mods(&app, &active_profile);
+    let agents = read_toml::<AgentsConfig>(config_dir.join("agents.toml"));
+    let mods = model_mods(&app, &agents, &active_profile);
 
     RuntimeConfig {
         config_dir,
@@ -532,6 +799,54 @@ fn model_options(models: &ModelsConfig) -> Vec<ModelOption> {
     entries
 }
 
+fn agent_options(agents: &AgentsConfig) -> Vec<AgentOption> {
+    let mut entries = agents
+        .agents
+        .iter()
+        .map(|(name, agent)| AgentOption {
+            name: name.clone(),
+            description: agent.description.clone().unwrap_or_default(),
+            persona: agent.persona.clone().unwrap_or_default(),
+            thinking_level: agent
+                .thinking_level
+                .clone()
+                .unwrap_or_else(|| DEFAULT_THINKING_LEVEL.into()),
+            prompt_injection: agent.prompt_injection.clone().unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    entries
+}
+
+fn subagent_options(agents: &AgentsConfig) -> Vec<SubagentOption> {
+    let mut entries = agents
+        .subagents
+        .iter()
+        .map(|(name, subagent)| SubagentOption {
+            name: name.clone(),
+            description: subagent.description.clone().unwrap_or_default(),
+            system: subagent.system.clone(),
+            model: subagent.model.clone().unwrap_or_default(),
+            max_result_chars: subagent.max_result_chars.unwrap_or(4_000),
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    entries
+}
+
+fn subagent_defs(agents: &AgentsConfig) -> Vec<SubagentDef> {
+    subagent_options(agents)
+        .into_iter()
+        .map(|entry| SubagentDef {
+            name: entry.name,
+            description: (!entry.description.is_empty()).then_some(entry.description),
+            system: entry.system,
+            model: (!entry.model.is_empty()).then_some(entry.model),
+            max_result_chars: Some(entry.max_result_chars),
+        })
+        .collect()
+}
+
 fn config_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
@@ -554,6 +869,14 @@ fn ensure_config_files(config_dir: &PathBuf) {
         let _ = fs::write(
             &models_path,
             "[providers.openai]\nkind = \"openai-compatible\"\nbase_url = \"https://api.openai.com/v1\"\n\n[providers.ollama]\nkind = \"openai-compatible\"\nbase_url = \"http://localhost:11434/v1\"\n\n[models.gpt-4o-mini]\nprovider = \"openai\"\nid = \"gpt-4o-mini\"\n\n[models.llama3_2]\nprovider = \"ollama\"\nid = \"llama3.2\"\n",
+        );
+    }
+
+    let agents_path = config_dir.join("agents.toml");
+    if !agents_path.exists() {
+        let _ = fs::write(
+            &agents_path,
+            "[agents.custom]\ndescription = \"Default main agent\"\nthinking_level = \"auto\"\nprompt_injection = \"be very concise and efficient, drop grammars and pleasantries extremely and to output really useful words only. explain in simple markdown. just respond important things and keep the respond short\"\n\n[subagents.scout]\ndescription = \"Find relevant files, symbols, and facts. No edits.\"\nsystem = \"Fast codebase scout. Search first, read only relevant files, return paths and findings.\"\nmax_result_chars = 4000\n\n[subagents.reviewer]\ndescription = \"Review risks, bugs, and missing tests. No edits.\"\nsystem = \"Strict senior reviewer. Return only concrete risks, bugs, and fixes.\"\nmax_result_chars = 4000\n\n[subagents.planner]\ndescription = \"Create small safe implementation steps. No edits.\"\nsystem = \"Careful planner. Return current state, target state, steps, validation, rollback.\"\nmax_result_chars = 4000\n\n[subagents.worker]\ndescription = \"Bounded implementation analysis. Read-only in MVP.\"\nsystem = \"Implementation worker. Inspect code and propose exact minimal changes. Do not edit files.\"\nmax_result_chars = 6000\n",
         );
     }
 
@@ -599,6 +922,20 @@ fn clean_context_chars(value: usize) -> usize {
     value.clamp(4_000, 1_000_000)
 }
 
+fn clean_subagent_concurrency(value: usize) -> usize {
+    value.clamp(1, 4)
+}
+
+fn clean_subagents(values: Vec<String>) -> Vec<String> {
+    let mut output = Vec::new();
+    for value in values.into_iter().filter_map(clean_optional) {
+        if !output.contains(&value) {
+            output.push(value);
+        }
+    }
+    output
+}
+
 fn clean_thinking_level(value: &str) -> Result<String, String> {
     let value = value.trim().to_lowercase();
     match value.as_str() {
@@ -607,37 +944,93 @@ fn clean_thinking_level(value: &str) -> Result<String, String> {
     }
 }
 
-fn model_mods(app: &AppConfig, name: &str) -> ModelMods {
+fn model_mods(app: &AppConfig, agents: &AgentsConfig, name: &str) -> ModelMods {
     let profiles = normalized_profiles(app);
     let profile = profiles.get(name);
+    let default_model = app
+        .default_model
+        .clone()
+        .unwrap_or_else(|| DEFAULT_MODEL.into());
+    let agent_name = profile
+        .and_then(|value| value.main_agent.clone())
+        .unwrap_or_else(|| "custom".into());
+    let agent = agents.agents.get(&agent_name);
     ModelMods {
-        persona: profile
+        main_model: profile
+            .and_then(|value| value.main_model.clone())
+            .unwrap_or(default_model),
+        main_agent: agent_name,
+        subagents: profile
+            .and_then(|value| value.subagents.clone())
+            .unwrap_or_else(|| vec!["scout".into(), "reviewer".into(), "planner".into()]),
+        persona: agent
             .and_then(|value| value.persona.clone())
+            .or_else(|| profile.and_then(|value| value.persona.clone()))
             .unwrap_or_default(),
-        thinking_level: profile
+        thinking_level: agent
             .and_then(|value| value.thinking_level.clone())
+            .or_else(|| profile.and_then(|value| value.thinking_level.clone()))
             .unwrap_or_else(|| DEFAULT_THINKING_LEVEL.into()),
-        prompt_injection: profile
+        prompt_injection: agent
             .and_then(|value| value.prompt_injection.clone())
+            .or_else(|| profile.and_then(|value| value.prompt_injection.clone()))
             .unwrap_or_default(),
         rtk_enabled: profile
             .and_then(|value| value.rtk_enabled)
             .unwrap_or_else(rtk_available),
+        shell_enabled: profile
+            .and_then(|value| value.shell_enabled)
+            .unwrap_or(false),
+        git_panel_enabled: profile
+            .and_then(|value| value.git_panel_enabled)
+            .unwrap_or(true),
+        subagents_enabled: profile
+            .and_then(|value| value.subagents_enabled)
+            .unwrap_or(true),
+        subagent_model: profile
+            .and_then(|value| value.subagent_model.clone())
+            .unwrap_or_default(),
+        subagent_max_concurrency: clean_subagent_concurrency(
+            profile
+                .and_then(|value| value.subagent_max_concurrency)
+                .unwrap_or(3),
+        ),
+        subagents_config: profile
+            .and_then(|value| value.subagents_config.clone())
+            .unwrap_or_default(),
+        subagents_registry: subagent_defs(agents),
     }
 }
 
 fn profile_options() -> Vec<ProfileOption> {
     let app = read_toml::<AppConfig>(config_dir().join("config.toml"));
+    let default_model = app
+        .default_model
+        .clone()
+        .unwrap_or_else(|| DEFAULT_MODEL.into());
     let mut entries = normalized_profiles(&app)
         .into_iter()
         .map(|(name, profile)| ProfileOption {
             name,
+            main_model: profile.main_model.unwrap_or_else(|| default_model.clone()),
+            main_agent: profile.main_agent.unwrap_or_else(|| "custom".into()),
+            subagents: profile
+                .subagents
+                .unwrap_or_else(|| vec!["scout".into(), "reviewer".into(), "planner".into()]),
             persona: profile.persona.unwrap_or_default(),
             thinking_level: profile
                 .thinking_level
                 .unwrap_or_else(|| DEFAULT_THINKING_LEVEL.into()),
             prompt_injection: profile.prompt_injection.unwrap_or_default(),
             rtk_enabled: profile.rtk_enabled.unwrap_or_else(rtk_available),
+            shell_enabled: profile.shell_enabled.unwrap_or(false),
+            git_panel_enabled: profile.git_panel_enabled.unwrap_or(true),
+            subagents_enabled: profile.subagents_enabled.unwrap_or(true),
+            subagent_model: profile.subagent_model.unwrap_or_default(),
+            subagent_max_concurrency: clean_subagent_concurrency(
+                profile.subagent_max_concurrency.unwrap_or(3),
+            ),
+            subagents_config: profile.subagents_config.unwrap_or_default(),
         })
         .collect::<Vec<_>>();
     entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -654,6 +1047,9 @@ fn active_profile_name(app: &AppConfig) -> String {
 fn normalized_profiles(app: &AppConfig) -> HashMap<String, ProfileConfig> {
     let mut profiles = app.profiles.clone().unwrap_or_default();
     profiles.entry("default".into()).or_insert(ProfileConfig {
+        main_model: app.default_model.clone(),
+        main_agent: Some("custom".into()),
+        subagents: None,
         persona: app.persona.clone(),
         thinking_level: app.thinking_level.clone(),
         prompt_injection: app
@@ -661,6 +1057,12 @@ fn normalized_profiles(app: &AppConfig) -> HashMap<String, ProfileConfig> {
             .clone()
             .or_else(|| Some(DEFAULT_PROMPT_INJECTION.into())),
         rtk_enabled: app.rtk_enabled,
+        shell_enabled: None,
+        git_panel_enabled: None,
+        subagents_enabled: None,
+        subagent_model: None,
+        subagent_max_concurrency: None,
+        subagents_config: None,
     });
     profiles
 }
@@ -682,6 +1084,60 @@ fn rtk_available() -> bool {
 
 fn env_value(key: &str) -> Option<String> {
     env::var(key).ok().filter(|value| !value.trim().is_empty())
+}
+
+fn rename_profile_agent(config_dir: &PathBuf, from: &str, to: &str) -> Result<(), String> {
+    let path = config_dir.join("config.toml");
+    let mut app = read_toml::<AppConfig>(path.clone());
+    let mut changed = false;
+    for profile in app.profiles.get_or_insert_with(HashMap::new).values_mut() {
+        if profile.main_agent.as_deref() == Some(from) {
+            profile.main_agent = Some(to.into());
+            changed = true;
+        }
+    }
+    if changed {
+        write_toml(path, &app)?;
+    }
+    Ok(())
+}
+
+fn rename_profile_subagent(config_dir: &PathBuf, from: &str, to: &str) -> Result<(), String> {
+    let path = config_dir.join("config.toml");
+    let mut app = read_toml::<AppConfig>(path.clone());
+    let mut changed = false;
+    for profile in app.profiles.get_or_insert_with(HashMap::new).values_mut() {
+        if let Some(subagents) = &mut profile.subagents {
+            for name in subagents.iter_mut() {
+                if name == from {
+                    *name = to.into();
+                    changed = true;
+                }
+            }
+            *subagents = clean_subagents(subagents.clone());
+        }
+    }
+    if changed {
+        write_toml(path, &app)?;
+    }
+    Ok(())
+}
+
+fn remove_profile_subagent(config_dir: &PathBuf, name: &str) -> Result<(), String> {
+    let path = config_dir.join("config.toml");
+    let mut app = read_toml::<AppConfig>(path.clone());
+    let mut changed = false;
+    for profile in app.profiles.get_or_insert_with(HashMap::new).values_mut() {
+        if let Some(subagents) = &mut profile.subagents {
+            let len = subagents.len();
+            subagents.retain(|entry| entry != name);
+            changed |= subagents.len() != len;
+        }
+    }
+    if changed {
+        write_toml(path, &app)?;
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
