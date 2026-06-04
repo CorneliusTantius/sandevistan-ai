@@ -1076,10 +1076,25 @@ fn compact_line(value: &str, max: usize) -> String {
 }
 
 fn rtk_available() -> bool {
-    let Some(paths) = env::var_os("PATH") else {
-        return false;
-    };
-    env::split_paths(&paths).any(|path| path.join("rtk").is_file())
+    rtk_path().is_some()
+}
+
+fn rtk_path() -> Option<PathBuf> {
+    env::var_os("PATH")
+        .into_iter()
+        .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
+        .chain(rtk_fallback_dirs())
+        .map(|path| path.join("rtk"))
+        .find(|path| path.is_file())
+}
+
+fn rtk_fallback_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join(".cargo/bin"));
+    }
+    dirs
 }
 
 fn env_value(key: &str) -> Option<String> {

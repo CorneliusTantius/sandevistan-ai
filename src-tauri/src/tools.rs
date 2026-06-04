@@ -241,7 +241,7 @@ fn shell_run(workspace: &Path, args: &Value, options: ToolOptions) -> Result<Str
             cmd.current_dir(workspace).arg("-lc").arg(rewritten);
             cmd
         } else {
-            let mut cmd = Command::new("rtk");
+            let mut cmd = rtk_command()?;
             cmd.current_dir(workspace).arg("run").arg("-c").arg(command);
             cmd
         };
@@ -279,7 +279,7 @@ fn rtk_rewrite_shell_command(workspace: &Path, command: &str) -> Result<Option<S
         return Err("rtk enabled but unavailable on PATH".into());
     }
 
-    let mut rewrite = Command::new("rtk");
+    let mut rewrite = rtk_command()?;
     rewrite.current_dir(workspace).arg("rewrite").arg(command);
     let output =
         command_utils::output_with_timeout("rtk-rewrite", &mut rewrite, RTK_REWRITE_TIMEOUT)?;
@@ -539,7 +539,7 @@ fn rtk_list(workspace: &Path, relative: &str) -> Result<String, String> {
     if !path.is_dir() {
         return Err("path is not a directory".into());
     }
-    let mut command = Command::new("rtk");
+    let mut command = rtk_command()?;
     command
         .current_dir(workspace)
         .arg("ls")
@@ -553,7 +553,7 @@ fn rtk_read(workspace: &Path, relative: &str) -> Result<String, String> {
     if !path.is_file() {
         return Err("path is not a file".into());
     }
-    let mut command = Command::new("rtk");
+    let mut command = rtk_command()?;
     command
         .current_dir(workspace)
         .arg("read")
@@ -577,7 +577,7 @@ fn rtk_grep(workspace: &Path, args: &Value) -> Result<String, String> {
     let root = arg_string(args, "path").unwrap_or_else(|| ".".into());
     resolve_existing(workspace, &root)?;
 
-    let mut command = Command::new("rtk");
+    let mut command = rtk_command()?;
     command
         .current_dir(workspace)
         .arg("grep")
@@ -595,7 +595,7 @@ fn rtk_grep(workspace: &Path, args: &Value) -> Result<String, String> {
 }
 
 fn rtk_git_status(workspace: &Path) -> Result<String, String> {
-    let mut command = Command::new("rtk");
+    let mut command = rtk_command()?;
     command
         .current_dir(workspace)
         .arg("git")
@@ -607,7 +607,7 @@ fn rtk_git_status(workspace: &Path) -> Result<String, String> {
 }
 
 fn rtk_git_diff(workspace: &Path, args: &Value) -> Result<String, String> {
-    let mut command = Command::new("rtk");
+    let mut command = rtk_command()?;
     command
         .current_dir(workspace)
         .arg("git")
@@ -641,10 +641,31 @@ pub fn is_mutating(call: &ToolCall) -> bool {
 }
 
 fn rtk_available() -> bool {
-    let Some(paths) = env::var_os("PATH") else {
-        return false;
-    };
-    env::split_paths(&paths).any(|path| path.join("rtk").is_file())
+    rtk_path().is_some()
+}
+
+fn rtk_command() -> Result<Command, String> {
+    rtk_path()
+        .map(Command::new)
+        .ok_or_else(|| "rtk enabled but unavailable on PATH".into())
+}
+
+fn rtk_path() -> Option<PathBuf> {
+    env::var_os("PATH")
+        .into_iter()
+        .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
+        .chain(rtk_fallback_dirs())
+        .map(|path| path.join("rtk"))
+        .find(|path| path.is_file())
+}
+
+fn rtk_fallback_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join(".cargo/bin"));
+    }
+    dirs
 }
 
 fn read_text(path: &Path) -> Result<String, String> {
