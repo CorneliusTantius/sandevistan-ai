@@ -232,9 +232,16 @@ impl ChatRuntime {
 
     pub fn delete_session(&self, request: SessionRequest) -> Result<SessionInfo, String> {
         let state = self.snapshot()?;
+        if let Ok(mut tasks) = self.tasks.lock() {
+            if let Some(handle) = tasks.remove(&request.id) {
+                handle.abort();
+            }
+        }
+
         let mut index = ensure_index(&state.workspace);
         index.sessions.retain(|session| session.id != request.id);
         let _ = fs::remove_file(session_file_path(&state.workspace, &request.id));
+        let _ = fs::remove_file(session_summary_path(&state.workspace, &request.id));
 
         if index.sessions.is_empty() {
             let session = create_session(&state.workspace);
