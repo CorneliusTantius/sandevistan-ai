@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter};
 
 const CONFIG_DIR_NAME: &str = ".sandevistan";
 const MAX_REPEAT_TOOL_CALLS: usize = 3;
-const MAX_AGENT_TURNS: usize = 40;
+const MAX_AGENT_TURNS: usize = 200;
 const TOOL_EXECUTION_TIMEOUT: Duration = Duration::from_secs(120);
 const SUMMARY_TIMEOUT: Duration = Duration::from_secs(30);
 
