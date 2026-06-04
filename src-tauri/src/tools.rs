@@ -1,4 +1,4 @@
-use crate::{ai, command_utils, runtime_wire::NativeToolSpec};
+use crate::{ai, command_utils, extensions, runtime_wire::NativeToolSpec};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
@@ -66,6 +66,9 @@ const TOOL_ENTRIES: &[ToolEntry] = &[
     ToolEntry { name: "git.diff", openai_name: "git_diff", description: "git diff, optional path, capped", mutating: false, shell_only: false, delegate_only: false, parameters: params_git_diff, validate: validate_git_diff, execute: exec_git_diff },
     ToolEntry { name: "shell.run", openai_name: "shell_run", description: "run shell command in workspace; timeout/capped output", mutating: true, shell_only: true, delegate_only: false, parameters: params_shell_run, validate: validate_shell_run, execute: exec_shell_run },
     ToolEntry { name: "agent.delegate", openai_name: "agent_delegate", description: "run selected subagents concurrently; provide many small specific independent tasks, not one broad task", mutating: false, shell_only: false, delegate_only: true, parameters: params_agent_delegate, validate: validate_agent_delegate, execute: exec_agent_delegate },
+    ToolEntry { name: "skill.list", openai_name: "skill_list", description: "list discovered skills from the skills extension", mutating: false, shell_only: false, delegate_only: false, parameters: params_empty, validate: validate_noop, execute: exec_skill_list },
+    ToolEntry { name: "skill.load", openai_name: "skill_load", description: "load full SKILL.md instructions for a discovered skill by name", mutating: false, shell_only: false, delegate_only: false, parameters: params_skill_load, validate: validate_skill_load, execute: exec_skill_load },
+    ToolEntry { name: "mcp.list", openai_name: "mcp_list", description: "list configured MCP servers when MCP extension is enabled", mutating: false, shell_only: false, delegate_only: false, parameters: params_empty, validate: validate_noop, execute: exec_mcp_list },
 ];
 
 fn find_tool_entry(name: &str) -> Option<&'static ToolEntry> {
@@ -79,6 +82,9 @@ fn find_tool_entry(name: &str) -> Option<&'static ToolEntry> {
         "git.diff" => Some(&TOOL_ENTRIES[6]),
         "shell.run" => Some(&TOOL_ENTRIES[7]),
         "agent.delegate" => Some(&TOOL_ENTRIES[8]),
+        "skill.list" => Some(&TOOL_ENTRIES[9]),
+        "skill.load" => Some(&TOOL_ENTRIES[10]),
+        "mcp.list" => Some(&TOOL_ENTRIES[11]),
         _ => None,
     }
 }
@@ -769,6 +775,9 @@ pub fn original_tool_name(name: &str) -> Option<&'static str> {
         "git_diff" => Some("git.diff"),
         "shell_run" => Some("shell.run"),
         "agent_delegate" => Some("agent.delegate"),
+        "skill_list" => Some("skill.list"),
+        "skill_load" => Some("skill.load"),
+        "mcp_list" => Some("mcp.list"),
         _ => None,
     }
 }
@@ -826,6 +835,12 @@ impl ToolRegistry {
         if entry.delegate_only && (!self.subagents_enabled || self.subagents.is_empty()) {
             return false;
         }
+        if entry.name.starts_with("skill.") && !extensions::skills_enabled() {
+            return false;
+        }
+        if entry.name.starts_with("mcp.") && !extensions::mcp_enabled() {
+            return false;
+        }
         true
     }
 }
@@ -848,6 +863,12 @@ pub fn validate_tool_call(
     }
     if entry.delegate_only && (!mods.subagents_enabled || mods.subagents.is_empty()) {
         return Err("agent.delegate disabled for this profile".into());
+    }
+    if entry.name.starts_with("skill.") && !extensions::skills_enabled() {
+        return Err("skills extension disabled".into());
+    }
+    if entry.name.starts_with("mcp.") && !extensions::mcp_enabled() {
+        return Err("mcp extension disabled".into());
     }
     (entry.validate)(&call.args, mods)?;
     Ok(ValidatedToolCall { call })
@@ -887,6 +908,10 @@ fn params_shell_run(_: &[String]) -> Value {
 
 fn params_agent_delegate(subagents: &[String]) -> Value {
     json!({"type":"object","properties":{"tasks":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","properties":{"agent":{"type":"string","enum":subagents},"task":{"type":"string","maxLength":1000}},"required":["agent","task"],"additionalProperties":false}}},"required":["tasks"],"additionalProperties":false})
+}
+
+fn params_skill_load(_: &[String]) -> Value {
+    json!({"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false})
 }
 
 fn validate_noop(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
@@ -938,6 +963,11 @@ fn validate_shell_run(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
 fn validate_agent_delegate(args: &Value, mods: &ai::ModelMods) -> Result<(), String> {
     ensure_no_extra_args(args, &["tasks"])?;
     validate_delegate_tasks(args, mods)
+}
+
+fn validate_skill_load(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+    ensure_no_extra_args(args, &["name"])?;
+    required_string(args, "name")
 }
 
 fn ensure_no_extra_args(args: &Value, allowed: &[&str]) -> Result<(), String> {
@@ -1080,6 +1110,19 @@ fn exec_shell_run(workspace: &Path, args: &Value, options: ToolOptions) -> Resul
 
 fn exec_agent_delegate(_: &Path, _: &Value, _: ToolOptions) -> Result<String, String> {
     Err("agent.delegate must be executed by agent runtime".into())
+}
+
+fn exec_skill_list(workspace: &Path, _: &Value, _: ToolOptions) -> Result<String, String> {
+    Ok(extensions::list_skills(workspace))
+}
+
+fn exec_skill_load(workspace: &Path, args: &Value, _: ToolOptions) -> Result<String, String> {
+    let name = arg_string(args, "name").ok_or_else(|| "missing name".to_string())?;
+    Ok(extensions::load_skill(workspace, &name))
+}
+
+fn exec_mcp_list(_: &Path, _: &Value, _: ToolOptions) -> Result<String, String> {
+    Ok("status: ok\nservers: none\nnote: MCP extension scaffold is enabled; server protocol integration is not configured yet.".into())
 }
 
 fn now_ms() -> u128 {
