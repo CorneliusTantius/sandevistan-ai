@@ -1,41 +1,12 @@
-use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-const CONFIG_DIR_NAME: &str = ".sandevistan";
-const EXTENSIONS_FILE: &str = "extensions.toml";
+use super::config;
+
 const MAX_SKILLS: usize = 50;
 const MAX_SKILL_BYTES: usize = 64_000;
-
-#[derive(Debug, Default, Deserialize)]
-struct ExtensionsConfig {
-    enabled: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ExtensionsInfo {
-    pub config_path: String,
-    pub extensions: Vec<ExtensionInfo>,
-    pub skills: Vec<SkillInfo>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ExtensionInfo {
-    pub id: String,
-    pub name: String,
-    pub enabled: bool,
-    pub removable: bool,
-    pub description: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SkillInfo {
-    pub name: String,
-    pub description: String,
-    pub path: String,
-}
 
 #[derive(Debug, Clone)]
 pub struct SkillSummary {
@@ -44,95 +15,35 @@ pub struct SkillSummary {
     pub path: PathBuf,
 }
 
-pub fn info(workspace: &Path) -> ExtensionsInfo {
-    let skills_enabled = skills_enabled();
-    ExtensionsInfo {
-        config_path: config_dir().join(EXTENSIONS_FILE).display().to_string(),
-        extensions: vec![
-            ExtensionInfo {
-                id: "skills".into(),
-                name: "Skills".into(),
-                enabled: skills_enabled,
-                removable: true,
-                description: "Agent Skills discovery + skill.list/skill.load tools".into(),
-            },
-            ExtensionInfo {
-                id: "mcp".into(),
-                name: "MCP".into(),
-                enabled: mcp_enabled(),
-                removable: true,
-                description: "MCP extension slot; protocol client not configured yet".into(),
-            },
-        ],
-        skills: if skills_enabled {
-            discover_skills(workspace)
-                .into_iter()
-                .map(|skill| SkillInfo {
-                    name: skill.name,
-                    description: skill.description,
-                    path: skill.path.display().to_string(),
-                })
-                .collect()
-        } else {
-            Vec::new()
-        },
+pub fn enabled() -> bool {
+    config::extension_enabled("skills", true)
+}
+
+pub fn system_prompt(workspace: &Path) -> Option<String> {
+    if !enabled() {
+        return None;
     }
-}
-
-pub fn skills_enabled() -> bool {
-    extension_enabled("skills", true)
-}
-
-pub fn mcp_enabled() -> bool {
-    extension_enabled("mcp", false)
-}
-
-fn extension_enabled(id: &str, default_enabled: bool) -> bool {
-    let Some(config) = read_extensions_config() else {
-        return default_enabled;
-    };
-    let Some(enabled) = config.enabled else {
-        return default_enabled;
-    };
-    enabled.iter().any(|entry| entry == id)
-}
-
-fn read_extensions_config() -> Option<ExtensionsConfig> {
-    let path = config_dir().join(EXTENSIONS_FILE);
-    let content = fs::read_to_string(path).ok()?;
-    toml::from_str(&content).ok()
-}
-
-pub fn system_prompt(workspace: &Path) -> String {
-    let mut sections = Vec::new();
-    if skills_enabled() {
-        let skills = discover_skills(workspace);
-        if !skills.is_empty() {
-            let mut lines = vec![
-                "Skills extension active. Available skills are listed as name: description. When a task matches a skill, call skill.load with the skill name before following it.".to_string(),
-                "Available skills:".to_string(),
-            ];
-            lines.extend(
-                skills
-                    .iter()
-                    .map(|skill| format!("- {}: {}", skill.name, skill.description)),
-            );
-            sections.push(lines.join("\n"));
-        }
+    let skills = discover(workspace);
+    if skills.is_empty() {
+        return None;
     }
-    if mcp_enabled() {
-        sections.push(
-            "MCP extension configured, but MCP runtime tools are not loaded in this build.".into(),
-        );
-    }
-    sections.join("\n\n")
+    let mut lines = vec![
+        "Skills extension active. Available skills are listed as name: description. When a task matches a skill, call skill.load with the skill name before following it.".to_string(),
+        "Available skills:".to_string(),
+    ];
+    lines.extend(
+        skills
+            .iter()
+            .map(|skill| format!("- {}: {}", skill.name, skill.description)),
+    );
+    Some(lines.join("\n"))
 }
 
-pub fn list_skills(workspace: &Path) -> String {
-    if !skills_enabled() {
+pub fn list(workspace: &Path) -> String {
+    if !enabled() {
         return "status: failed\nerror: skills extension disabled".into();
     }
-    let skills = discover_skills(workspace);
+    let skills = discover(workspace);
     if skills.is_empty() {
         return "status: ok\nskills: none".into();
     }
@@ -147,15 +58,15 @@ pub fn list_skills(workspace: &Path) -> String {
     output
 }
 
-pub fn load_skill(workspace: &Path, name: &str) -> String {
-    if !skills_enabled() {
+pub fn load(workspace: &Path, name: &str) -> String {
+    if !enabled() {
         return "status: failed\nerror: skills extension disabled".into();
     }
     let name = name.trim();
     if name.is_empty() {
         return "status: failed\nerror: missing skill name".into();
     }
-    let Some(skill) = discover_skills(workspace)
+    let Some(skill) = discover(workspace)
         .into_iter()
         .find(|skill| skill.name == name)
     else {
@@ -176,7 +87,7 @@ pub fn load_skill(workspace: &Path, name: &str) -> String {
     )
 }
 
-pub fn discover_skills(workspace: &Path) -> Vec<SkillSummary> {
+pub fn discover(workspace: &Path) -> Vec<SkillSummary> {
     let mut roots = skill_roots(workspace);
     roots.dedup();
     let mut skills = Vec::new();
@@ -192,11 +103,11 @@ pub fn discover_skills(workspace: &Path) -> Vec<SkillSummary> {
 fn skill_roots(workspace: &Path) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(home) = dirs::home_dir() {
-        roots.push(home.join(CONFIG_DIR_NAME).join("skills"));
+        roots.push(home.join(".sandevistan").join("skills"));
         roots.push(home.join(".agents").join("skills"));
     }
     for ancestor in workspace.ancestors() {
-        roots.push(ancestor.join(CONFIG_DIR_NAME).join("skills"));
+        roots.push(ancestor.join(".sandevistan").join("skills"));
         roots.push(ancestor.join(".agents").join("skills"));
         if ancestor.join(".git").is_dir() {
             break;
@@ -323,10 +234,4 @@ fn truncate_utf8(value: String, max_bytes: usize) -> String {
         end -= 1;
     }
     format!("{}\n... truncated to {max_bytes} bytes", &value[..end])
-}
-
-fn config_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-        .join(CONFIG_DIR_NAME)
 }
