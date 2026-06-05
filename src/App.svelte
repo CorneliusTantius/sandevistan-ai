@@ -34,7 +34,7 @@
   type ThinkingLevel = "auto" | "low" | "medium" | "high";
   type AgentOption = { name: string; description: string; persona: string; thinking_level: ThinkingLevel; prompt_injection: string };
   type SubagentOption = { name: string; description: string; system: string; model: string; max_result_chars: number };
-  type ExtensionInfo = { id: string; name: string; enabled: boolean; removable: boolean; description: string };
+  type ExtensionInfo = { id: string; name: string; enabled: boolean; removable: boolean; description: string; path?: string };
   type SkillInfo = { name: string; description: string; path: string };
   type ExtensionsInfo = { config_path: string; extensions: ExtensionInfo[]; skills: SkillInfo[] };
   type AiMods = {
@@ -1484,6 +1484,7 @@
                   <strong>{extension.name}</strong>
                   <span class:enabled={extension.enabled}>{extension.enabled ? "enabled" : "disabled"}</span>
                   <small>{extension.description}</small>
+                  {#if extension.path}<small>{extension.path}</small>{/if}
                 </div>
               {:else}
                 <span class="empty-state">no extensions discovered</span>

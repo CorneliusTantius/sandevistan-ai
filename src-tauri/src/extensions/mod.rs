@@ -2,6 +2,8 @@ use serde::Serialize;
 use std::path::Path;
 
 pub mod config;
+pub mod hooks;
+pub mod manifest;
 pub mod mcp;
 pub mod skills;
 
@@ -19,6 +21,7 @@ pub struct ExtensionInfo {
     pub enabled: bool,
     pub removable: bool,
     pub description: String,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,6 +50,7 @@ pub fn info(workspace: &Path) -> ExtensionsInfo {
                 enabled: skills_enabled,
                 removable: true,
                 description: "Agent Skills discovery + skill.list/skill.load tools".into(),
+                path: None,
             },
             ExtensionInfo {
                 id: "mcp".into(),
@@ -54,8 +58,23 @@ pub fn info(workspace: &Path) -> ExtensionsInfo {
                 enabled: mcp::enabled(),
                 removable: true,
                 description: "MCP extension slot; protocol client not configured yet".into(),
+                path: None,
             },
-        ],
+        ]
+        .into_iter()
+        .chain(manifest::discover(workspace).into_iter().map(|manifest| {
+            ExtensionInfo {
+                id: manifest.id.clone(),
+                name: manifest.name.unwrap_or(manifest.id),
+                enabled: manifest.enabled.unwrap_or(false),
+                removable: true,
+                description: manifest
+                    .description
+                    .unwrap_or_else(|| "External extension manifest".into()),
+                path: Some(manifest.path.display().to_string()),
+            }
+        }))
+        .collect(),
         skills: if skills_enabled {
             skills::discover(workspace)
                 .into_iter()
@@ -71,12 +90,12 @@ pub fn info(workspace: &Path) -> ExtensionsInfo {
     }
 }
 
+pub fn hook_bus(workspace: &Path) -> hooks::HookBus<'_> {
+    hooks::HookBus::new(workspace)
+}
+
 pub fn system_prompt(workspace: &Path) -> String {
-    [skills::system_prompt(workspace), mcp::system_prompt()]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    hook_bus(workspace).system_context()
 }
 
 pub fn list_skills(workspace: &Path) -> String {
