@@ -1122,7 +1122,7 @@ fn exec_skill_load(workspace: &Path, args: &Value, _: ToolOptions) -> Result<Str
 }
 
 fn exec_mcp_list(_: &Path, _: &Value, _: ToolOptions) -> Result<String, String> {
-    Ok("status: ok\nservers: none\nnote: MCP extension scaffold is enabled; server protocol integration is not configured yet.".into())
+    Ok(extensions::list_mcp_servers())
 }
 
 fn now_ms() -> u128 {
