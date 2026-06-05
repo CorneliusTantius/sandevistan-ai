@@ -1,6 +1,7 @@
 use crate::{
     ai::{self, ChatMessage},
     context as prompt_context,
+    extensions::hooks::HookEvent,
     runtime_wire::{NativeStreamEvent, NativeToolCall},
     tools,
 };
@@ -74,6 +75,7 @@ impl AgentRuntime {
         mut config: AgentRuntimeConfig,
     ) -> Result<AgentRunResult, AgentRuntimeError> {
         (config.on_event)(AgentEvent::AgentStart);
+        crate::extensions::hook_bus(&config.workspace).emit(HookEvent::AgentStart);
 
         let mut system_prompt = config
             .system_prompt
@@ -102,7 +104,11 @@ impl AgentRuntime {
         let mut turn_index = 0usize;
         loop {
             if config.cancellation_token.is_cancelled() {
-                return Err(AgentRuntimeError::new("cancelled", &config.messages));
+                return Err(runtime_error(
+                    &config.workspace,
+                    "cancelled",
+                    &config.messages,
+                ));
             }
             let turn_number = turn_index + 1;
             (config.on_event)(AgentEvent::TurnStart { turn: turn_number });
@@ -132,7 +138,7 @@ impl AgentRuntime {
                 },
             )
             .await
-            .map_err(|error| AgentRuntimeError::new(error, &config.messages))?;
+            .map_err(|error| runtime_error(&config.workspace, error, &config.messages))?;
 
             let content = turn.content.trim().to_string();
             let has_streamed = streamed.lock().map(|value| *value).unwrap_or(false);
@@ -153,6 +159,7 @@ impl AgentRuntime {
                     content,
                 });
                 (config.on_event)(AgentEvent::TurnEnd { turn: turn_number });
+                crate::extensions::hook_bus(&config.workspace).emit(HookEvent::AgentEnd);
                 (config.on_event)(AgentEvent::AgentEnd);
                 return Ok(AgentRunResult {
                     messages: config.messages,
@@ -162,7 +169,11 @@ impl AgentRuntime {
             let mut handles = Vec::new();
             for (index, call) in tool_calls.into_iter().enumerate() {
                 if config.cancellation_token.is_cancelled() {
-                    return Err(AgentRuntimeError::new("cancelled", &config.messages));
+                    return Err(runtime_error(
+                        &config.workspace,
+                        "cancelled",
+                        &config.messages,
+                    ));
                 }
                 let tool_call = tools::ToolCall {
                     name: call.name.clone(),
@@ -209,7 +220,8 @@ impl AgentRuntime {
                 match handle.await {
                     Ok(record) => records.push(record),
                     Err(error) => {
-                        return Err(AgentRuntimeError::new(
+                        return Err(runtime_error(
+                            &config.workspace,
                             format!("tool task failed: {error}"),
                             &config.messages,
                         ));
@@ -219,10 +231,18 @@ impl AgentRuntime {
             records.sort_by_key(|record| record.index);
 
             if config.cancellation_token.is_cancelled() {
-                return Err(AgentRuntimeError::new("cancelled", &config.messages));
+                return Err(runtime_error(
+                    &config.workspace,
+                    "cancelled",
+                    &config.messages,
+                ));
             }
 
             for record in records {
+                crate::extensions::hook_bus(&config.workspace).emit(HookEvent::AfterToolResult {
+                    tool: record.call.name.clone(),
+                    content: record.content.clone(),
+                });
                 (config.on_event)(AgentEvent::ToolCallEnd {
                     id: record.call.id.clone(),
                     name: record.call.name.clone(),
@@ -243,6 +263,18 @@ impl AgentRuntime {
             turn_index += 1;
         }
     }
+}
+
+fn runtime_error(
+    workspace: &std::path::Path,
+    message: impl Into<String>,
+    messages: &[ChatMessage],
+) -> AgentRuntimeError {
+    let message = message.into();
+    crate::extensions::hook_bus(workspace).emit(HookEvent::Error {
+        message: message.clone(),
+    });
+    AgentRuntimeError::new(message, messages)
 }
 
 fn context_window<'a>(

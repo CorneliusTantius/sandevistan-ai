@@ -1,7 +1,6 @@
 use serde_json::Value;
 use std::path::Path;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum HookEvent {
     AgentStart,
@@ -12,7 +11,6 @@ pub enum HookEvent {
     Error { message: String },
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum HookDecision {
     Continue,
@@ -40,6 +38,7 @@ impl<'a> HookBus<'a> {
                 decisions.push(HookDecision::AppendSystemContext { content });
             }
         }
+        decisions.extend(super::external::emit(self.workspace, &event));
         decisions
     }
 

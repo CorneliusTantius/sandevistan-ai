@@ -14,6 +14,9 @@ pub struct ExtensionManifest {
     pub command: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
+    #[serde(default)]
+    pub hooks: Vec<String>,
+    pub timeout_ms: Option<u64>,
     #[serde(skip)]
     pub path: PathBuf,
 }

@@ -2,9 +2,11 @@ use serde::Serialize;
 use std::path::Path;
 
 pub mod config;
+pub mod external;
 pub mod hooks;
 pub mod manifest;
 pub mod mcp;
+pub mod protocol;
 pub mod skills;
 
 #[derive(Debug, Serialize)]
@@ -62,18 +64,26 @@ pub fn info(workspace: &Path) -> ExtensionsInfo {
             },
         ]
         .into_iter()
-        .chain(manifest::discover(workspace).into_iter().map(|manifest| {
-            ExtensionInfo {
-                id: manifest.id.clone(),
-                name: manifest.name.unwrap_or(manifest.id),
-                enabled: manifest.enabled.unwrap_or(false),
-                removable: true,
-                description: manifest
-                    .description
-                    .unwrap_or_else(|| "External extension manifest".into()),
-                path: Some(manifest.path.display().to_string()),
-            }
-        }))
+        .chain(
+            manifest::discover(workspace)
+                .into_iter()
+                .map(|manifest| ExtensionInfo {
+                    id: manifest.id.clone(),
+                    name: manifest.name.unwrap_or(manifest.id),
+                    enabled: manifest.enabled.unwrap_or(false),
+                    removable: true,
+                    description: manifest.description.unwrap_or_else(|| {
+                        let command = manifest.command.unwrap_or_else(|| "not configured".into());
+                        let hooks = if manifest.hooks.is_empty() {
+                            "no hooks".into()
+                        } else {
+                            format!("hooks: {}", manifest.hooks.join(", "))
+                        };
+                        format!("External extension manifest · {command} · {hooks}")
+                    }),
+                    path: Some(manifest.path.display().to_string()),
+                }),
+        )
         .collect(),
         skills: if skills_enabled {
             skills::discover(workspace)
