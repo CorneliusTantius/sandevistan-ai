@@ -108,6 +108,104 @@ pub fn system_prompt(workspace: &Path) -> String {
     hook_bus(workspace).system_context()
 }
 
+pub fn is_extension_tool(name: &str) -> bool {
+    parse_extension_tool_name(name).is_some()
+}
+
+pub fn parse_extension_tool_name(name: &str) -> Option<(String, String)> {
+    let rest = name.strip_prefix("ext.")?;
+    let (extension_id, tool_name) = rest.split_once('.')?;
+    if extension_id.is_empty() || tool_name.is_empty() {
+        return None;
+    }
+    Some((extension_id.to_string(), tool_name.to_string()))
+}
+
+pub fn tool_specs(workspace: &Path) -> Vec<crate::runtime_wire::NativeToolSpec> {
+    external::extension_tools(workspace)
+        .into_iter()
+        .map(|(extension_id, tool)| {
+            let internal_name = format!("ext.{}.{}", extension_id, tool.name);
+            crate::runtime_wire::NativeToolSpec {
+                openai_name: openai_tool_name(&extension_id, &tool.name),
+                name: internal_name,
+                description: tool.description,
+                parameters: tool.parameters,
+            }
+        })
+        .collect()
+}
+
+pub fn execute_tool(workspace: &Path, name: &str, args: serde_json::Value) -> String {
+    let Some((extension_id, tool_name)) = parse_extension_tool_name(name) else {
+        return "status: failed\nerror: invalid extension tool name".into();
+    };
+    match external::execute_tool(workspace, &extension_id, &tool_name, args) {
+        Ok(content) => content,
+        Err(error) => format!("status: failed\nerror: {error}"),
+    }
+}
+
+pub fn original_tool_name(openai_name: &str) -> Option<String> {
+    let rest = openai_name.strip_prefix("ext__")?;
+    let (extension_id, tool_name) = rest.split_once("__")?;
+    Some(format!(
+        "ext.{}.{}",
+        decode_name(extension_id)?,
+        decode_name(tool_name)?
+    ))
+}
+
+fn openai_tool_name(extension_id: &str, tool_name: &str) -> String {
+    format!(
+        "ext__{}__{}",
+        encode_name(extension_id),
+        encode_name(tool_name)
+    )
+}
+
+fn encode_name(value: &str) -> String {
+    let mut out = String::new();
+    for c in value.chars() {
+        match c {
+            'a'..='z' | '0'..='9' => out.push(c),
+            '_' => out.push_str("_u"),
+            '-' => out.push_str("_d"),
+            '.' => out.push_str("_p"),
+            _ => out.push('_'),
+        }
+    }
+    out
+}
+
+fn decode_name(value: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        if c != '_' {
+            out.push(c);
+            continue;
+        }
+        match chars.next()? {
+            'u' => out.push('_'),
+            'd' => out.push('-'),
+            'p' => out.push('.'),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+pub(super) fn valid_tool_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && name.chars().all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_' || c == '.'
+        })
+}
+
 pub fn list_skills(workspace: &Path) -> String {
     skills::list(workspace)
 }

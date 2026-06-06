@@ -1,6 +1,6 @@
 use super::{
     hooks::{HookDecision, HookEvent},
-    manifest, protocol,
+    manifest, protocol, valid_tool_name,
 };
 use std::{
     io::Write,
@@ -30,25 +30,95 @@ pub fn emit(workspace: &Path, event: &HookEvent) -> Vec<HookDecision> {
             request_id: request_id(),
             extension_id: manifest.id.clone(),
             workspace: workspace.display().to_string(),
-            event: protocol_event(event),
+            method: "hook".into(),
+            event: Some(protocol_event(event)),
+            tool_call: None,
         };
         let timeout = manifest
             .timeout_ms
             .map(Duration::from_millis)
             .unwrap_or(DEFAULT_TIMEOUT);
         match call_extension(&manifest, &request, timeout) {
-            Ok(mut next) => decisions.append(&mut next),
+            Ok(response) => decisions.extend(response.decisions.into_iter().map(map_decision)),
             Err(error) => eprintln!("extension {} hook {hook} failed: {error}", manifest.id),
         }
     }
     decisions
 }
 
+pub fn extension_tools(workspace: &Path) -> Vec<(String, protocol::ExtensionToolSpec)> {
+    let mut tools = Vec::new();
+    for manifest in manifest::discover(workspace) {
+        if manifest.enabled != Some(true)
+            || manifest.command.as_deref().unwrap_or_default().is_empty()
+        {
+            continue;
+        }
+        let request = protocol::ExtensionRequest {
+            protocol: PROTOCOL.into(),
+            request_id: request_id(),
+            extension_id: manifest.id.clone(),
+            workspace: workspace.display().to_string(),
+            method: "initialize".into(),
+            event: None,
+            tool_call: None,
+        };
+        let timeout = manifest
+            .timeout_ms
+            .map(Duration::from_millis)
+            .unwrap_or(DEFAULT_TIMEOUT);
+        match call_extension(&manifest, &request, timeout) {
+            Ok(response) => tools.extend(
+                response
+                    .tools
+                    .into_iter()
+                    .filter(|tool| valid_tool_name(&tool.name))
+                    .map(|tool| (manifest.id.clone(), tool)),
+            ),
+            Err(error) => eprintln!("extension {} initialize failed: {error}", manifest.id),
+        }
+    }
+    tools
+}
+
+pub fn execute_tool(
+    workspace: &Path,
+    extension_id: &str,
+    tool_name: &str,
+    args: serde_json::Value,
+) -> Result<String, String> {
+    let manifest = manifest::discover(workspace)
+        .into_iter()
+        .find(|manifest| manifest.id == extension_id && manifest.enabled == Some(true))
+        .ok_or_else(|| format!("extension not found or disabled: {extension_id}"))?;
+    if manifest.command.as_deref().unwrap_or_default().is_empty() {
+        return Err(format!("extension command missing: {extension_id}"));
+    }
+    let request = protocol::ExtensionRequest {
+        protocol: PROTOCOL.into(),
+        request_id: request_id(),
+        extension_id: manifest.id.clone(),
+        workspace: workspace.display().to_string(),
+        method: "tool.execute".into(),
+        event: None,
+        tool_call: Some(protocol::ExtensionToolCall {
+            name: tool_name.into(),
+            args,
+        }),
+    };
+    let timeout = manifest
+        .timeout_ms
+        .map(Duration::from_millis)
+        .unwrap_or(DEFAULT_TIMEOUT);
+    let response = call_extension(&manifest, &request, timeout)?;
+    Ok(response.content.unwrap_or_else(|| "status: ok".into()))
+}
+
 fn call_extension(
     manifest: &manifest::ExtensionManifest,
     request: &protocol::ExtensionRequest,
     timeout: Duration,
-) -> Result<Vec<HookDecision>, String> {
+) -> Result<protocol::ExtensionResponse, String> {
     let command = manifest
         .command
         .as_deref()
@@ -98,7 +168,7 @@ fn call_extension(
             }
             let response = serde_json::from_slice::<protocol::ExtensionResponse>(&output.stdout)
                 .map_err(|error| format!("response parse failed: {error}"))?;
-            return Ok(response.decisions.into_iter().map(map_decision).collect());
+            return Ok(response);
         }
         std::thread::sleep(Duration::from_millis(10));
     }

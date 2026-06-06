@@ -17,9 +17,18 @@ pub async fn run_streamed_tool_call(
 ) -> String {
     let name = call.name.clone();
 
-    let mut call = match validate_tool_call(call, &mods, read_only) {
-        Ok(validated) => validated.call,
-        Err(error) => return failed_tool_content(&name, &format!("invalid tool call: {error}")),
+    let mut call = if crate::extensions::is_extension_tool(&call.name) {
+        if !call.args.is_object() {
+            return failed_tool_content(&name, "invalid tool call: args must be a JSON object");
+        }
+        call
+    } else {
+        match validate_tool_call(call, &mods, read_only) {
+            Ok(validated) => validated.call,
+            Err(error) => {
+                return failed_tool_content(&name, &format!("invalid tool call: {error}"))
+            }
+        }
     };
 
     let mut modified = false;
@@ -36,13 +45,18 @@ pub async fn run_streamed_tool_call(
             HookDecision::Continue | HookDecision::AppendSystemContext { .. } => {}
         }
     }
-    if modified {
+    if modified && !crate::extensions::is_extension_tool(&call.name) {
         call = match validate_tool_call(call, &mods, read_only) {
             Ok(validated) => validated.call,
             Err(error) => {
                 return failed_tool_content(&name, &format!("modified tool call invalid: {error}"))
             }
         };
+    }
+
+    if crate::extensions::is_extension_tool(&call.name) {
+        let output = crate::extensions::execute_tool(&workspace, &call.name, call.args);
+        return format!("{name}\n{output}");
     }
 
     let output = run_tool_call(

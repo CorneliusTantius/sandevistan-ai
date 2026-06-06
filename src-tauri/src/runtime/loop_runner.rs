@@ -93,13 +93,14 @@ impl AgentRuntime {
             &config.prompt_config,
         );
         let mut agent_messages = chat_to_agent_messages(prompt);
-        let native_tools = tools::ToolRegistry::new(
+        let mut native_tools = tools::ToolRegistry::new(
             config.mods.subagents_enabled && !config.mods.subagents.is_empty(),
             &config.mods.subagents,
             config.mods.shell_enabled,
             config.read_only,
         )
         .specs();
+        native_tools.extend(crate::extensions::tool_specs(&config.workspace));
 
         let mut turn_index = 0usize;
         loop {

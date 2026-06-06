@@ -7,7 +7,11 @@ pub struct ExtensionRequest {
     pub request_id: String,
     pub extension_id: String,
     pub workspace: String,
-    pub event: ExtensionHookEvent,
+    pub method: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<ExtensionHookEvent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call: Option<ExtensionToolCall>,
 }
 
 #[derive(Debug, Serialize)]
@@ -21,10 +25,29 @@ pub enum ExtensionHookEvent {
     Error { message: String },
 }
 
+#[derive(Debug, Serialize)]
+pub struct ExtensionToolCall {
+    pub name: String,
+    pub args: Value,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ExtensionResponse {
     #[serde(default)]
     pub decisions: Vec<ExtensionDecision>,
+    #[serde(default)]
+    pub tools: Vec<ExtensionToolSpec>,
+    pub content: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExtensionToolSpec {
+    pub name: String,
+    pub description: String,
+    pub parameters: Value,
+    #[serde(default)]
+    pub mutating: bool,
 }
 
 #[derive(Debug, Deserialize)]
