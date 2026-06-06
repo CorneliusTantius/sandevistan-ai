@@ -1,3 +1,5 @@
+use serde::Deserialize;
+
 mod agent;
 mod ai;
 mod command_utils;
@@ -68,10 +70,26 @@ fn ai_delete_subagent(request: ai::DeleteSubagentRequest) -> Result<ai::AiConfig
     ai::delete_subagent(request)
 }
 
+#[derive(Debug, Deserialize)]
+struct ExtensionToggleRequest {
+    id: String,
+    enabled: bool,
+}
+
 #[tauri::command]
 fn extensions_info(
     chat: tauri::State<'_, agent::ChatRuntime>,
 ) -> Result<extensions::ExtensionsInfo, String> {
+    let workspace = chat.workspace()?;
+    Ok(extensions::info(&workspace))
+}
+
+#[tauri::command]
+fn extensions_set_enabled(
+    request: ExtensionToggleRequest,
+    chat: tauri::State<'_, agent::ChatRuntime>,
+) -> Result<extensions::ExtensionsInfo, String> {
+    extensions::set_enabled(&request.id, request.enabled)?;
     let workspace = chat.workspace()?;
     Ok(extensions::info(&workspace))
 }
@@ -287,6 +305,7 @@ pub fn run() {
             ai_save_subagent,
             ai_delete_subagent,
             extensions_info,
+            extensions_set_enabled,
             chat_session,
             chat_set_workspace,
             chat_delete_workspace,

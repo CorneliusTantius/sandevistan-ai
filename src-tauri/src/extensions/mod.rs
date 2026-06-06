@@ -253,3 +253,19 @@ pub fn load_skill(workspace: &Path, name: &str) -> String {
 pub fn list_mcp_servers() -> String {
     mcp::list_servers()
 }
+
+pub fn call_mcp_tool(
+    workspace: &Path,
+    server: &str,
+    tool: &str,
+    args: serde_json::Value,
+) -> String {
+    mcp::call_tool(workspace, server, tool, args)
+}
+
+pub fn set_enabled(id: &str, enabled: bool) -> Result<(), String> {
+    if id.trim().is_empty() {
+        return Err("extension id is empty".into());
+    }
+    config::set_extension_enabled(id, enabled)
+}

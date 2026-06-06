@@ -493,6 +493,14 @@
     }
   }
 
+  async function setExtensionEnabled(id: string, enabled: boolean) {
+    try {
+      extensionsInfo = await invoke<ExtensionsInfo>("extensions_set_enabled", { request: { id, enabled } });
+    } catch (error) {
+      addMessage("error", String(error));
+    }
+  }
+
   function openConfig() {
     addingModel = false;
     setConfigDraft(config);
@@ -1483,7 +1491,7 @@
               {#each extensionsInfo.extensions as extension}
                 <div class="extension-row">
                   <strong>{extension.name}</strong>
-                  <span class:enabled={extension.enabled}>{extension.enabled ? "enabled" : "disabled"}</span>
+                  <button class="ghost compact" type="button" disabled={!extension.removable} on:click={() => void setExtensionEnabled(extension.id, !extension.enabled)}>{extension.enabled ? "enabled" : "disabled"}</button>
                   <small>{extension.description}</small>
                   {#if extension.hooks.length}<small>hooks: {extension.hooks.join(", ")}</small>{/if}
                   {#if extension.tools.length}<small>tools: {extension.tools.map((tool) => tool.name).join(", ")}</small>{/if}
