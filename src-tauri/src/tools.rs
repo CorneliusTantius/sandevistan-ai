@@ -69,6 +69,7 @@ const TOOL_ENTRIES: &[ToolEntry] = &[
     ToolEntry { name: "skill.list", openai_name: "skill_list", description: "list discovered skills from the skills extension", mutating: false, shell_only: false, delegate_only: false, parameters: params_empty, validate: validate_noop, execute: exec_skill_list },
     ToolEntry { name: "skill.load", openai_name: "skill_load", description: "load full SKILL.md instructions for a discovered skill by name", mutating: false, shell_only: false, delegate_only: false, parameters: params_skill_load, validate: validate_skill_load, execute: exec_skill_load },
     ToolEntry { name: "mcp.list", openai_name: "mcp_list", description: "list configured MCP servers when MCP extension is enabled", mutating: false, shell_only: false, delegate_only: false, parameters: params_empty, validate: validate_noop, execute: exec_mcp_list },
+    ToolEntry { name: "mcp.call", openai_name: "mcp_call", description: "call a tool on a configured MCP server", mutating: false, shell_only: false, delegate_only: false, parameters: params_mcp_call, validate: validate_mcp_call, execute: exec_mcp_call },
 ];
 
 fn find_tool_entry(name: &str) -> Option<&'static ToolEntry> {
@@ -85,6 +86,7 @@ fn find_tool_entry(name: &str) -> Option<&'static ToolEntry> {
         "skill.list" => Some(&TOOL_ENTRIES[9]),
         "skill.load" => Some(&TOOL_ENTRIES[10]),
         "mcp.list" => Some(&TOOL_ENTRIES[11]),
+        "mcp.call" => Some(&TOOL_ENTRIES[12]),
         _ => None,
     }
 }
@@ -778,6 +780,7 @@ pub fn original_tool_name(name: &str) -> Option<&'static str> {
         "skill_list" => Some("skill.list"),
         "skill_load" => Some("skill.load"),
         "mcp_list" => Some("mcp.list"),
+        "mcp_call" => Some("mcp.call"),
         _ => None,
     }
 }
@@ -914,6 +917,10 @@ fn params_skill_load(_: &[String]) -> Value {
     json!({"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false})
 }
 
+fn params_mcp_call(_: &[String]) -> Value {
+    json!({"type":"object","properties":{"server":{"type":"string"},"tool":{"type":"string"},"args":{"type":"object","default":{}}},"required":["server","tool"],"additionalProperties":false})
+}
+
 fn validate_noop(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
     ensure_no_extra_args(args, &[])
 }
@@ -968,6 +975,16 @@ fn validate_agent_delegate(args: &Value, mods: &ai::ModelMods) -> Result<(), Str
 fn validate_skill_load(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
     ensure_no_extra_args(args, &["name"])?;
     required_string(args, "name")
+}
+
+fn validate_mcp_call(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+    ensure_no_extra_args(args, &["server", "tool", "args"])?;
+    required_string(args, "server")?;
+    required_string(args, "tool")?;
+    match args.get("args") {
+        Some(value) if !value.is_object() => Err("args must be an object".into()),
+        _ => Ok(()),
+    }
 }
 
 fn ensure_no_extra_args(args: &Value, allowed: &[&str]) -> Result<(), String> {
@@ -1123,6 +1140,15 @@ fn exec_skill_load(workspace: &Path, args: &Value, _: ToolOptions) -> Result<Str
 
 fn exec_mcp_list(_: &Path, _: &Value, _: ToolOptions) -> Result<String, String> {
     Ok(extensions::list_mcp_servers())
+}
+
+fn exec_mcp_call(workspace: &Path, args: &Value, _: ToolOptions) -> Result<String, String> {
+    let server = arg_string(args, "server").ok_or_else(|| "missing server".to_string())?;
+    let tool = arg_string(args, "tool").ok_or_else(|| "missing tool".to_string())?;
+    let tool_args = args.get("args").cloned().unwrap_or_else(|| json!({}));
+    Ok(extensions::call_mcp_tool(
+        workspace, &server, &tool, tool_args,
+    ))
 }
 
 fn now_ms() -> u128 {
