@@ -156,8 +156,10 @@
   let modsTab: "general" | "profile" | "models" | "agents" | "subagents" | "extensions" = "profile";
   let addingAgent = false;
   let addingSubagent = false;
+  let editingExtension = false;
   let agentDraft = { name: "", original_name: "", description: "", persona: "", thinking_level: "auto" as ThinkingLevel, prompt_injection: "" };
   let subagentDraft = { name: "", original_name: "", description: "", system: "", model: "", max_result_chars: 4000 };
+  let extensionDraft: ExtensionInfo = { id: "", name: "", enabled: false, removable: true, description: "", hooks: [], tools: [] };
   let extensionsInfo: ExtensionsInfo = { config_path: "", extensions: [], skills: [] };
   $: providerOptions = [
     ...config.providers.map((provider): SelectOption => ({ value: provider.name, label: provider.name })),
@@ -202,6 +204,14 @@
       { label: "edit", onClick: () => editSubagent(subagent) },
       { label: "del", danger: true, onClick: () => void deleteSubagent(subagent.name) },
     ],
+  }));
+  $: extensionItems = extensionsInfo.extensions.map((extension): Item => ({
+    key: extension.id,
+    title: `${extension.name}${extension.enabled ? "" : " (off)"}`,
+    subtitle: extension.description || extension.path || "extension",
+    active: false,
+    onSelect: () => editExtension(extension),
+    actions: [{ label: "edit", onClick: () => editExtension(extension) }],
   }));
 
   $: modelItems = config.models.map((model): Item => ({
@@ -496,9 +506,24 @@
   async function setExtensionEnabled(id: string, enabled: boolean) {
     try {
       extensionsInfo = await invoke<ExtensionsInfo>("extensions_set_enabled", { request: { id, enabled } });
+      extensionDraft = { ...extensionDraft, enabled };
     } catch (error) {
       addMessage("error", String(error));
     }
+  }
+
+  function addExtension() {
+    editingExtension = true;
+    extensionDraft = { id: "", name: "New external extension", enabled: false, removable: true, description: "Create ~/.sandevistan/extensions/<id>/extension.toml", hooks: [], tools: [] };
+  }
+
+  function editExtension(extension: ExtensionInfo) {
+    editingExtension = true;
+    extensionDraft = { ...extension, hooks: [...extension.hooks], tools: [...extension.tools] };
+  }
+
+  function extensionManifestHint(id: string) {
+    return `${extensionsInfo.config_path.replace(/extensions\.toml$/, "extensions") || "~/.sandevistan/extensions"}/${id || "my-extension"}/extension.toml`;
   }
 
   function openConfig() {
@@ -562,6 +587,7 @@
     modsDraft = normalizeMods(config.mods);
     addingAgent = false;
     addingSubagent = false;
+    editingExtension = false;
     showMods = true;
     void loadExtensionsInfo();
   }
@@ -1485,34 +1511,34 @@
               <div class="actions right"><button class="ghost" type="button" on:click={() => (addingSubagent = false)}>back</button><button type="button" disabled={!subagentDraft.name.trim() || !subagentDraft.system.trim()} on:click={() => void saveSubagent()}>save subagent</button><button class="ghost danger" type="button" disabled={!subagentDraft.original_name} on:click={() => void deleteSubagent(subagentDraft.original_name)}>delete</button></div>
             {/if}
           {:else if modsTab === "extensions"}
-            <div class="feature-list compact-feature-list">
-              <div class="side-title">extensions</div>
+            {#if !editingExtension}
               <p class="hint">Config: {extensionsInfo.config_path || "~/.sandevistan/extensions.toml"}</p>
-              {#each extensionsInfo.extensions as extension}
-                <div class="extension-row">
-                  <strong>{extension.name}</strong>
-                  <button class="ghost compact" type="button" disabled={!extension.removable} on:click={() => void setExtensionEnabled(extension.id, !extension.enabled)}>{extension.enabled ? "enabled" : "disabled"}</button>
-                  <small>{extension.description}</small>
-                  {#if extension.hooks.length}<small>hooks: {extension.hooks.join(", ")}</small>{/if}
-                  {#if extension.tools.length}<small>tools: {extension.tools.map((tool) => tool.name).join(", ")}</small>{/if}
-                  {#if extension.path}<small>{extension.path}</small>{/if}
-                </div>
-              {:else}
-                <span class="empty-state">no extensions discovered</span>
-              {/each}
-            </div>
-            <div class="feature-list compact-feature-list">
-              <div class="side-title">skills</div>
-              {#each extensionsInfo.skills as skill}
-                <div class="extension-row" title={skill.path}>
-                  <strong>{skill.name}</strong>
-                  <small>{skill.description}</small>
-                  <small>{skill.path}</small>
-                </div>
-              {:else}
-                <span class="empty-state">no skills discovered</span>
-              {/each}
-            </div>
+              <ItemList items={extensionItems} addTitle="+ add extension" addSubtitle="manifest folder" onAdd={addExtension} />
+              <div class="feature-list compact-feature-list">
+                <div class="side-title">skills</div>
+                {#each extensionsInfo.skills as skill}
+                  <div class="extension-row" title={skill.path}>
+                    <strong>{skill.name}</strong>
+                    <small>{skill.description}</small>
+                    <small>{skill.path}</small>
+                  </div>
+                {:else}
+                  <span class="empty-state">no skills discovered</span>
+                {/each}
+              </div>
+            {:else}
+              <label>Extension id<input bind:value={extensionDraft.id} disabled={Boolean(extensionDraft.path)} placeholder="my-extension" /></label>
+              <label>Name<input bind:value={extensionDraft.name} disabled /></label>
+              <label>Description<textarea bind:value={extensionDraft.description} disabled rows="3"></textarea></label>
+              <div class="feature-list compact-feature-list">
+                <div class="side-title">status</div>
+                <Checkbox checked={extensionDraft.enabled} label={`enabled: ${extensionDraft.enabled ? "on" : "off"}`} disabled={!extensionDraft.id.trim()} onChange={(checked) => void setExtensionEnabled(extensionDraft.id, checked)} />
+                {#if extensionDraft.hooks.length}<p class="hint">hooks: {extensionDraft.hooks.join(", ")}</p>{/if}
+                {#if extensionDraft.tools.length}<p class="hint">tools: {extensionDraft.tools.map((tool) => tool.name).join(", ")}</p>{/if}
+                {#if extensionDraft.path}<p class="hint">manifest: {extensionDraft.path}</p>{:else}<p class="hint">create manifest: {extensionManifestHint(extensionDraft.id)}</p>{/if}
+              </div>
+              <div class="actions right"><button class="ghost" type="button" on:click={() => (editingExtension = false)}>back</button><button class="ghost" type="button" on:click={() => void loadExtensionsInfo()}>reload</button></div>
+            {/if}
           {/if}
         </section>
       </div>
