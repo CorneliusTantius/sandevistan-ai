@@ -1,4 +1,5 @@
 use super::{
+    config,
     hooks::{HookDecision, HookEvent},
     manifest, protocol, valid_tool_name,
 };
@@ -17,7 +18,7 @@ pub fn emit(workspace: &Path, event: &HookEvent) -> Vec<HookDecision> {
     let hook = hook_name(event);
     let mut decisions = Vec::new();
     for manifest in manifest::discover(workspace) {
-        if manifest.enabled != Some(true)
+        if !manifest_enabled(&manifest)
             || manifest.command.as_deref().unwrap_or_default().is_empty()
         {
             continue;
@@ -49,7 +50,7 @@ pub fn emit(workspace: &Path, event: &HookEvent) -> Vec<HookDecision> {
 pub fn extension_tools(workspace: &Path) -> Vec<(String, protocol::ExtensionToolSpec)> {
     let mut tools = Vec::new();
     for manifest in manifest::discover(workspace) {
-        if manifest.enabled != Some(true)
+        if !manifest_enabled(&manifest)
             || manifest.command.as_deref().unwrap_or_default().is_empty()
         {
             continue;
@@ -89,7 +90,7 @@ pub fn execute_tool(
 ) -> Result<String, String> {
     let manifest = manifest::discover(workspace)
         .into_iter()
-        .find(|manifest| manifest.id == extension_id && manifest.enabled == Some(true))
+        .find(|manifest| manifest.id == extension_id && manifest_enabled(manifest))
         .ok_or_else(|| format!("extension not found or disabled: {extension_id}"))?;
     if manifest.command.as_deref().unwrap_or_default().is_empty() {
         return Err(format!("extension command missing: {extension_id}"));
@@ -112,6 +113,10 @@ pub fn execute_tool(
         .unwrap_or(DEFAULT_TIMEOUT);
     let response = call_extension(&manifest, &request, timeout)?;
     Ok(response.content.unwrap_or_else(|| "status: ok".into()))
+}
+
+fn manifest_enabled(manifest: &manifest::ExtensionManifest) -> bool {
+    config::extension_enabled(&manifest.id, manifest.enabled.unwrap_or(false))
 }
 
 fn call_extension(

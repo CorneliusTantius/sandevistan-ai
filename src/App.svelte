@@ -36,8 +36,7 @@
   type SubagentOption = { name: string; description: string; system: string; model: string; max_result_chars: number };
   type ExtensionToolInfo = { name: string; description: string };
   type ExtensionInfo = { id: string; name: string; enabled: boolean; removable: boolean; description: string; path?: string; hooks: string[]; tools: ExtensionToolInfo[] };
-  type SkillInfo = { name: string; description: string; path: string };
-  type ExtensionsInfo = { config_path: string; extensions: ExtensionInfo[]; skills: SkillInfo[] };
+  type ExtensionsInfo = { config_path: string; extensions: ExtensionInfo[] };
   type AiMods = {
     main_model: string;
     main_agent: string;
@@ -160,7 +159,7 @@
   let agentDraft = { name: "", original_name: "", description: "", persona: "", thinking_level: "auto" as ThinkingLevel, prompt_injection: "" };
   let subagentDraft = { name: "", original_name: "", description: "", system: "", model: "", max_result_chars: 4000 };
   let extensionDraft: ExtensionInfo = { id: "", name: "", enabled: false, removable: true, description: "", hooks: [], tools: [] };
-  let extensionsInfo: ExtensionsInfo = { config_path: "", extensions: [], skills: [] };
+  let extensionsInfo: ExtensionsInfo = { config_path: "", extensions: [] };
   $: providerOptions = [
     ...config.providers.map((provider): SelectOption => ({ value: provider.name, label: provider.name })),
     { value: "__new__", label: "+ provider" },
@@ -499,7 +498,7 @@
       extensionsInfo = await invoke<ExtensionsInfo>("extensions_info");
     } catch (error) {
       addMessage("error", String(error));
-      extensionsInfo = { config_path: "", extensions: [], skills: [] };
+      extensionsInfo = { config_path: "", extensions: [] };
     }
   }
 
@@ -1514,18 +1513,6 @@
             {#if !editingExtension}
               <p class="hint">Config: {extensionsInfo.config_path || "~/.sandevistan/extensions.toml"}</p>
               <ItemList items={extensionItems} addTitle="+ add extension" addSubtitle="manifest folder" onAdd={addExtension} />
-              <div class="feature-list compact-feature-list">
-                <div class="side-title">skills</div>
-                {#each extensionsInfo.skills as skill}
-                  <div class="extension-row" title={skill.path}>
-                    <strong>{skill.name}</strong>
-                    <small>{skill.description}</small>
-                    <small>{skill.path}</small>
-                  </div>
-                {:else}
-                  <span class="empty-state">no skills discovered</span>
-                {/each}
-              </div>
             {:else}
               <label>Extension id<input bind:value={extensionDraft.id} disabled={Boolean(extensionDraft.path)} placeholder="my-extension" /></label>
               <label>Name<input bind:value={extensionDraft.name} disabled /></label>

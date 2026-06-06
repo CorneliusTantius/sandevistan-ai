@@ -29,17 +29,7 @@ impl<'a> HookBus<'a> {
     }
 
     pub fn emit(&self, event: HookEvent) -> Vec<HookDecision> {
-        let mut decisions = Vec::new();
-        if let HookEvent::BeforeModelCall = event {
-            if let Some(content) = super::skills::system_prompt(self.workspace) {
-                decisions.push(HookDecision::AppendSystemContext { content });
-            }
-            if let Some(content) = super::mcp::system_prompt() {
-                decisions.push(HookDecision::AppendSystemContext { content });
-            }
-        }
-        decisions.extend(super::external::emit(self.workspace, &event));
-        decisions
+        super::external::emit(self.workspace, &event)
     }
 
     pub fn system_context(&self) -> String {

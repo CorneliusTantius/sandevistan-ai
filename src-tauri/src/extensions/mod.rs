@@ -5,15 +5,12 @@ pub mod config;
 pub mod external;
 pub mod hooks;
 pub mod manifest;
-pub mod mcp;
 pub mod protocol;
-pub mod skills;
 
 #[derive(Debug, Serialize)]
 pub struct ExtensionsInfo {
     pub config_path: String,
     pub extensions: Vec<ExtensionInfo>,
-    pub skills: Vec<SkillInfo>,
 }
 
 #[derive(Debug, Serialize)]
@@ -34,23 +31,7 @@ pub struct ExtensionToolInfo {
     pub description: String,
 }
 
-#[derive(Debug, Serialize)]
-pub struct SkillInfo {
-    pub name: String,
-    pub description: String,
-    pub path: String,
-}
-
-pub fn skills_enabled() -> bool {
-    skills::enabled()
-}
-
-pub fn mcp_enabled() -> bool {
-    mcp::enabled()
-}
-
 pub fn info(workspace: &Path) -> ExtensionsInfo {
-    let skills_enabled = skills::enabled();
     let mut tools_by_extension: HashMap<String, Vec<ExtensionToolInfo>> = HashMap::new();
     for (extension_id, tool) in external::extension_tools(workspace) {
         tools_by_extension
@@ -63,76 +44,27 @@ pub fn info(workspace: &Path) -> ExtensionsInfo {
     }
     ExtensionsInfo {
         config_path: config::config_path().display().to_string(),
-        extensions: vec![
-            ExtensionInfo {
-                id: "skills".into(),
-                name: "Skills".into(),
-                enabled: skills_enabled,
+        extensions: manifest::discover(workspace)
+            .into_iter()
+            .map(|manifest| ExtensionInfo {
+                id: manifest.id.clone(),
+                name: manifest.name.clone().unwrap_or_else(|| manifest.id.clone()),
+                enabled: manifest_enabled(&manifest),
                 removable: true,
-                description: "Agent Skills discovery + skill.list/skill.load tools".into(),
-                path: None,
-                hooks: vec!["before_model_call".into()],
-                tools: vec![
-                    ExtensionToolInfo {
-                        name: "skill.list".into(),
-                        description: "List discovered skills".into(),
-                    },
-                    ExtensionToolInfo {
-                        name: "skill.load".into(),
-                        description: "Load full skill instructions".into(),
-                    },
-                ],
-            },
-            ExtensionInfo {
-                id: "mcp".into(),
-                name: "MCP".into(),
-                enabled: mcp::enabled(),
-                removable: true,
-                description: "MCP extension slot; protocol client not configured yet".into(),
-                path: None,
-                hooks: Vec::new(),
-                tools: vec![ExtensionToolInfo {
-                    name: "mcp.list".into(),
-                    description: "List configured MCP servers".into(),
-                }],
-            },
-        ]
-        .into_iter()
-        .chain(
-            manifest::discover(workspace)
-                .into_iter()
-                .map(|manifest| ExtensionInfo {
-                    id: manifest.id.clone(),
-                    name: manifest.name.clone().unwrap_or_else(|| manifest.id.clone()),
-                    enabled: manifest.enabled.unwrap_or(false),
-                    removable: true,
-                    description: manifest.description.unwrap_or_else(|| {
-                        let command = manifest.command.unwrap_or_else(|| "not configured".into());
-                        let hooks = if manifest.hooks.is_empty() {
-                            "no hooks".into()
-                        } else {
-                            format!("hooks: {}", manifest.hooks.join(", "))
-                        };
-                        format!("External extension manifest · {command} · {hooks}")
-                    }),
-                    path: Some(manifest.path.display().to_string()),
-                    hooks: manifest.hooks,
-                    tools: tools_by_extension.remove(&manifest.id).unwrap_or_default(),
+                description: manifest.description.unwrap_or_else(|| {
+                    let command = manifest.command.unwrap_or_else(|| "not configured".into());
+                    let hooks = if manifest.hooks.is_empty() {
+                        "no hooks".into()
+                    } else {
+                        format!("hooks: {}", manifest.hooks.join(", "))
+                    };
+                    format!("External extension manifest · {command} · {hooks}")
                 }),
-        )
-        .collect(),
-        skills: if skills_enabled {
-            skills::discover(workspace)
-                .into_iter()
-                .map(|skill| SkillInfo {
-                    name: skill.name,
-                    description: skill.description,
-                    path: skill.path.display().to_string(),
-                })
-                .collect()
-        } else {
-            Vec::new()
-        },
+                path: Some(manifest.path.display().to_string()),
+                hooks: manifest.hooks,
+                tools: tools_by_extension.remove(&manifest.id).unwrap_or_default(),
+            })
+            .collect(),
     }
 }
 
@@ -192,6 +124,17 @@ pub fn original_tool_name(openai_name: &str) -> Option<String> {
     ))
 }
 
+fn manifest_enabled(manifest: &manifest::ExtensionManifest) -> bool {
+    config::extension_enabled(&manifest.id, manifest.enabled.unwrap_or(false))
+}
+
+pub fn set_enabled(id: &str, enabled: bool) -> Result<(), String> {
+    if id.trim().is_empty() {
+        return Err("extension id is empty".into());
+    }
+    config::set_extension_enabled(id, enabled)
+}
+
 fn openai_tool_name(extension_id: &str, tool_name: &str) -> String {
     format!(
         "ext__{}__{}",
@@ -240,32 +183,4 @@ pub(super) fn valid_tool_name(name: &str) -> bool {
         && name.chars().all(|c| {
             c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_' || c == '.'
         })
-}
-
-pub fn list_skills(workspace: &Path) -> String {
-    skills::list(workspace)
-}
-
-pub fn load_skill(workspace: &Path, name: &str) -> String {
-    skills::load(workspace, name)
-}
-
-pub fn list_mcp_servers() -> String {
-    mcp::list_servers()
-}
-
-pub fn call_mcp_tool(
-    workspace: &Path,
-    server: &str,
-    tool: &str,
-    args: serde_json::Value,
-) -> String {
-    mcp::call_tool(workspace, server, tool, args)
-}
-
-pub fn set_enabled(id: &str, enabled: bool) -> Result<(), String> {
-    if id.trim().is_empty() {
-        return Err("extension id is empty".into());
-    }
-    config::set_extension_enabled(id, enabled)
 }

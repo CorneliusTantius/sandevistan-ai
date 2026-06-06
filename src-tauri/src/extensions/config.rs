@@ -22,10 +22,7 @@ pub fn extension_enabled(id: &str, default_enabled: bool) -> bool {
 pub fn set_extension_enabled(id: &str, enabled: bool) -> Result<(), String> {
     let path = config_path();
     let mut config = read_extensions_config().unwrap_or_default();
-    let mut enabled_list = config
-        .enabled
-        .take()
-        .unwrap_or_else(|| vec!["skills".into()]);
+    let mut enabled_list = config.enabled.take().unwrap_or_default();
     if enabled {
         if !enabled_list.iter().any(|entry| entry == id) {
             enabled_list.push(id.to_string());
