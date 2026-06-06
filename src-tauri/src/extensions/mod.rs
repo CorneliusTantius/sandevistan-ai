@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 pub mod config;
 pub mod external;
@@ -24,6 +24,14 @@ pub struct ExtensionInfo {
     pub removable: bool,
     pub description: String,
     pub path: Option<String>,
+    pub hooks: Vec<String>,
+    pub tools: Vec<ExtensionToolInfo>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExtensionToolInfo {
+    pub name: String,
+    pub description: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,6 +51,16 @@ pub fn mcp_enabled() -> bool {
 
 pub fn info(workspace: &Path) -> ExtensionsInfo {
     let skills_enabled = skills::enabled();
+    let mut tools_by_extension: HashMap<String, Vec<ExtensionToolInfo>> = HashMap::new();
+    for (extension_id, tool) in external::extension_tools(workspace) {
+        tools_by_extension
+            .entry(extension_id)
+            .or_default()
+            .push(ExtensionToolInfo {
+                name: tool.name,
+                description: tool.description,
+            });
+    }
     ExtensionsInfo {
         config_path: config::config_path().display().to_string(),
         extensions: vec![
@@ -53,6 +71,17 @@ pub fn info(workspace: &Path) -> ExtensionsInfo {
                 removable: true,
                 description: "Agent Skills discovery + skill.list/skill.load tools".into(),
                 path: None,
+                hooks: vec!["before_model_call".into()],
+                tools: vec![
+                    ExtensionToolInfo {
+                        name: "skill.list".into(),
+                        description: "List discovered skills".into(),
+                    },
+                    ExtensionToolInfo {
+                        name: "skill.load".into(),
+                        description: "Load full skill instructions".into(),
+                    },
+                ],
             },
             ExtensionInfo {
                 id: "mcp".into(),
@@ -61,6 +90,11 @@ pub fn info(workspace: &Path) -> ExtensionsInfo {
                 removable: true,
                 description: "MCP extension slot; protocol client not configured yet".into(),
                 path: None,
+                hooks: Vec::new(),
+                tools: vec![ExtensionToolInfo {
+                    name: "mcp.list".into(),
+                    description: "List configured MCP servers".into(),
+                }],
             },
         ]
         .into_iter()
@@ -69,7 +103,7 @@ pub fn info(workspace: &Path) -> ExtensionsInfo {
                 .into_iter()
                 .map(|manifest| ExtensionInfo {
                     id: manifest.id.clone(),
-                    name: manifest.name.unwrap_or(manifest.id),
+                    name: manifest.name.clone().unwrap_or_else(|| manifest.id.clone()),
                     enabled: manifest.enabled.unwrap_or(false),
                     removable: true,
                     description: manifest.description.unwrap_or_else(|| {
@@ -82,6 +116,8 @@ pub fn info(workspace: &Path) -> ExtensionsInfo {
                         format!("External extension manifest · {command} · {hooks}")
                     }),
                     path: Some(manifest.path.display().to_string()),
+                    hooks: manifest.hooks,
+                    tools: tools_by_extension.remove(&manifest.id).unwrap_or_default(),
                 }),
         )
         .collect(),
