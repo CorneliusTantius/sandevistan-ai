@@ -15,7 +15,8 @@
 
 | Platform | Command |
 |---|---|
-| Arch / Linux tar | <code>url=$(curl -fsSL https://api.github.com/repos/CorneliusTantius/sandevistan-ai/releases/latest &#124; grep -Eo 'https://[^\"]+sandevistan-[^\"]+\.tar\.gz' &#124; head -n1) && curl -fsSL "$url" -o sandevistan.tar.gz && tar -xzf sandevistan.tar.gz && cd sandevistan && ./install.sh</code> |
+| Arch / Linux native | <code>curl -fsSL https://raw.githubusercontent.com/CorneliusTantius/sandevistan-ai/main/docs/scripts/install-arch-native.sh &#124; sh</code> |
+| Linux tar | <code>url=$(curl -fsSL https://api.github.com/repos/CorneliusTantius/sandevistan-ai/releases/latest &#124; grep -Eo 'https://[^\"]+sandevistan-[^\"]+\.tar\.gz' &#124; head -n1) && curl -fsSL "$url" -o sandevistan.tar.gz && tar -xzf sandevistan.tar.gz && cd sandevistan && ./install.sh</code> |
 | Debian / Ubuntu | <code>url=$(curl -fsSL https://api.github.com/repos/CorneliusTantius/sandevistan-ai/releases/latest &#124; grep -Eo 'https://[^\"]+sandevistan-[^\"]+-x86\.deb' &#124; head -n1) && curl -fsSL "$url" -o sandevistan.deb && sudo apt install ./sandevistan.deb</code> |
 | Fedora / RHEL | <code>url=$(curl -fsSL https://api.github.com/repos/CorneliusTantius/sandevistan-ai/releases/latest &#124; grep -Eo 'https://[^\"]+sandevistan-[^\"]+-x86\.rpm' &#124; head -n1) && curl -fsSL "$url" -o sandevistan.rpm && sudo dnf install ./sandevistan.rpm</code> |
 | Windows | Download installer from latest release. |
