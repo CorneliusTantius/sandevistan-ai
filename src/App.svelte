@@ -851,16 +851,22 @@
   }
 
   function setSession(session: SessionInfo) {
-    saveLiveSession(activeSessionId);
+    const previousSessionId = activeSessionId;
+    const activeSession = session.sessions.find((item) => item.id === session.active_session_id);
+    if (previousSessionId && previousSessionId !== session.active_session_id) saveLiveSession(previousSessionId);
     resetStreamState();
     workspace = session.workspace;
     workspaceDraft = session.workspace;
     workspaces = session.workspaces;
     activeSessionId = session.active_session_id;
     sessions = session.sessions;
-    sessionLabel = session.sessions.find((item) => item.id === session.active_session_id)?.title ?? "session";
+    sessionLabel = activeSession?.title ?? "session";
     messages = session.messages;
-    loadLiveSession(session.active_session_id);
+    if (activeSession?.running) loadLiveSession(session.active_session_id);
+    else {
+      const { [session.active_session_id]: _stale, ...rest } = liveSessions;
+      liveSessions = rest;
+    }
     messageGroupLimit = 80;
   }
 
