@@ -13,6 +13,18 @@
     return content.split("\n").slice(1).join("\n").trim();
   }
 
+  function status(content: string) {
+    if (/^status:\s*running\.\.\./m.test(content)) return "running";
+    if (/^status:\s*(failed|error)\b/m.test(content)) return "failed";
+    return "done";
+  }
+
+  function groupStatus() {
+    if (tools.some((tool) => status(tool.content) === "failed")) return "failed";
+    if (tools.some((tool) => status(tool.content) === "running")) return "running";
+    return "done";
+  }
+
   function toggleItem(index: number) {
     openItems = { ...openItems, [index]: !openItems[index] };
   }
@@ -20,7 +32,7 @@
 
 <article class="tool-group">
   <button class="group-toggle" type="button" on:click|stopPropagation={() => (open = !open)}>
-    tools × {tools.length} {open ? "[-]" : "[+]"}
+    tools × {tools.length} {open ? "[-]" : "[+]"}<span class={`status-dot ${groupStatus()}`} aria-hidden="true"></span>
   </button>
 
   {#if open}
@@ -28,7 +40,7 @@
       {#each tools as tool, index}
         <section class="tool-item">
           <button class="tool-toggle" type="button" on:click|stopPropagation={() => toggleItem(index)}>
-            {title(tool.content)} {openItems[index] ? "[-]" : "[+]"}
+            {title(tool.content)} {openItems[index] ? "[-]" : "[+]"}<span class={`status-dot ${status(tool.content)}`} aria-hidden="true"></span>
           </button>
           {#if openItems[index]}
             <pre>{body(tool.content)}</pre>
@@ -51,12 +63,34 @@
   .group-toggle,
   .tool-toggle {
     width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
     justify-content: start;
     color: var(--muted);
     border: 1px solid var(--panel);
     background: color-mix(in srgb, var(--black) 88%, var(--panel));
     text-align: left;
     cursor: pointer;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    flex: 0 0 auto;
+    background: var(--accent);
+  }
+
+  .status-dot.done {
+    background: #22c55e;
+  }
+
+  .status-dot.running {
+    background: #facc15;
+  }
+
+  .status-dot.failed {
+    background: var(--danger);
   }
 
   .tool-list {

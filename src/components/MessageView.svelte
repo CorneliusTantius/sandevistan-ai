@@ -112,6 +112,21 @@
   function splitTableRow(line: string) {
     return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
   }
+
+  function escapeHtml(value: string) {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function inlineMarkdown(value: string) {
+    return escapeHtml(value)
+      .replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  }
 </script>
 
 <article class={`message ${role} ${toolFailed ? "tool-failed" : ""}`}>
@@ -131,22 +146,22 @@
         {#if block.kind === "code"}
           <pre class="code"><code>{block.text}</code></pre>
         {:else if block.kind === "heading"}
-          <h3>{block.text}</h3>
+          <h3>{@html inlineMarkdown(block.text)}</h3>
         {:else if block.kind === "list"}
-          <ul>{#each block.items as item}<li>{item}</li>{/each}</ul>
+          <ul>{#each block.items as item}<li>{@html inlineMarkdown(item)}</li>{/each}</ul>
         {:else if block.kind === "table"}
           <div class="table-wrap">
             <table>
-              <thead><tr>{#each block.headers as header}<th>{header}</th>{/each}</tr></thead>
+              <thead><tr>{#each block.headers as header}<th>{@html inlineMarkdown(header)}</th>{/each}</tr></thead>
               <tbody>
                 {#each block.rows as row}
-                  <tr>{#each block.headers as _, index}<td>{row[index] ?? ""}</td>{/each}</tr>
+                  <tr>{#each block.headers as _, index}<td>{@html inlineMarkdown(row[index] ?? "")}</td>{/each}</tr>
                 {/each}
               </tbody>
             </table>
           </div>
         {:else}
-          <p>{block.text}</p>
+          <p>{@html inlineMarkdown(block.text)}</p>
         {/if}
       {/each}
     </div>
@@ -265,6 +280,14 @@
   li {
     color: var(--text);
     white-space: pre-wrap;
+  }
+
+  :global(.inline-code) {
+    padding: 1px 4px;
+    border: 1px solid var(--panel);
+    background: var(--black);
+    color: var(--muted);
+    font: inherit;
   }
 
   .streaming-text {
