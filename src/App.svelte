@@ -254,6 +254,11 @@
   $: featureContentSearch = config.features?.content_search ?? true;
   $: featureGit = config.features?.git ?? true;
   $: featureFileWatcher = config.features?.file_watcher ?? true;
+  $: contextLimit = config.context_chars || 80000;
+  $: contextUsed = messages.reduce((total, message) => total + message.content.length, 0) + prompt.length;
+  $: contextPercent = Math.min(100, Math.round((contextUsed / Math.max(contextLimit, 1)) * 100));
+  $: inputTokens = Math.ceil((messages.filter((message) => message.role !== "assistant").reduce((total, message) => total + message.content.length, 0) + prompt.length) / 4);
+  $: outputTokens = Math.ceil(messages.filter((message) => message.role === "assistant").reduce((total, message) => total + message.content.length, 0) / 4);
   $: if (sideTab === "content" && !featureContentSearch) sideTab = "files";
   $: if (sideTab === "git" && !featureGit) sideTab = "files";
   $: sessionItems = visibleSessions.map((session): Item => ({
@@ -1497,17 +1502,26 @@
 
       {#if activeTab === "chat" && chatOpen}
       <section class="chat" aria-label="AI chat">
-        <div class="messages" bind:this={messagesEl}>
-          {#if hiddenMessageGroupCount > 0}
-            <button class="ghost show-earlier" type="button" on:click={showEarlierMessages}>show {Math.min(80, hiddenMessageGroupCount)} earlier ({hiddenMessageGroupCount} hidden)</button>
-          {/if}
-          {#each visibleMessageGroups as group (group.key)}
-            {#if group.kind === "message"}
-              <MessageView role={group.message.role} content={group.message.content} streaming={isStreamingMessage(group)} />
-            {:else}
-              <ToolGroup tools={group.tools} />
+        <div class="chat-main">
+          <div class="messages" bind:this={messagesEl}>
+            {#if hiddenMessageGroupCount > 0}
+              <button class="ghost show-earlier" type="button" on:click={showEarlierMessages}>show {Math.min(80, hiddenMessageGroupCount)} earlier ({hiddenMessageGroupCount} hidden)</button>
             {/if}
-          {/each}
+            {#each visibleMessageGroups as group (group.key)}
+              {#if group.kind === "message"}
+                <MessageView role={group.message.role} content={group.message.content} streaming={isStreamingMessage(group)} />
+              {:else}
+                <ToolGroup tools={group.tools} />
+              {/if}
+            {/each}
+          </div>
+          <aside class="stats-card" aria-label="Chat stats">
+            <div class="side-title">stats</div>
+            <div class="stat-row"><span>context</span><strong>{formatContext(contextUsed)} / {formatContext(contextLimit)}</strong></div>
+            <div class="context-bar"><span style={`width:${contextPercent}%`}></span></div>
+            <small>{contextPercent}% used</small>
+            <div class="stat-row"><span>in / out tokens</span><strong>{formatContext(inputTokens)} | {formatContext(outputTokens)}</strong></div>
+          </aside>
         </div>
 
         {#if activeSessionRunning}

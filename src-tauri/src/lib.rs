@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use tauri::Manager;
 
 mod agent;
 mod ai;
@@ -302,6 +303,14 @@ pub fn run() {
         .manage(agent::ChatRuntime::default())
         .manage(shell::TerminalState::default())
         .manage(watcher::FileWatcherState::default())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.maximize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             ai_config,
             ai_save_config,
