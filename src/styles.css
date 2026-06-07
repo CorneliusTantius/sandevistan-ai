@@ -452,6 +452,39 @@ h2 {
   background: var(--panel);
 }
 
+.extension-row {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--panel);
+  background: color-mix(in srgb, var(--black) 86%, var(--panel));
+}
+
+.extension-row span {
+  width: fit-content;
+  padding: 2px 6px;
+  color: var(--muted);
+  border: 1px solid var(--panel);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.extension-row span.enabled {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.extension-row small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.show-earlier {
+  width: fit-content;
+  justify-self: center;
+  font-size: 12px;
+}
+
 .prompt-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto;

@@ -155,6 +155,6 @@ impl AgentMessage {
     }
 }
 
-pub fn to_native_messages(messages: &[AgentMessage]) -> Vec<NativeMessage> {
-    messages.iter().map(AgentMessage::to_native).collect()
+pub fn to_native_message_refs(messages: &[&AgentMessage]) -> Vec<NativeMessage> {
+    messages.iter().map(|message| message.to_native()).collect()
 }

@@ -5,14 +5,14 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open } from "@tauri-apps/plugin-dialog";
   import Checkbox from "./components/Checkbox.svelte";
-  import DiffPane, { type DiffTab } from "./components/DiffPane.svelte";
-  import EditorPane, { type OpenFile } from "./components/EditorPane.svelte";
+  import type { DiffTab } from "./components/DiffPane.svelte";
+  import type { OpenFile } from "./components/EditorPane.svelte";
   import FileTree, { type FileEntry } from "./components/FileTree.svelte";
   import ItemList, { type Item } from "./components/ItemList.svelte";
   import MessageView from "./components/MessageView.svelte";
   import Modal from "./components/Modal.svelte";
   import SelectBox, { type SelectOption } from "./components/SelectBox.svelte";
-  import TerminalPane from "./components/TerminalPane.svelte";
+
   import ToolGroup from "./components/ToolGroup.svelte";
 
   const appVersion = import.meta.env.PACKAGE_VERSION ?? "dev";
@@ -34,6 +34,9 @@
   type ThinkingLevel = "auto" | "low" | "medium" | "high";
   type AgentOption = { name: string; description: string; persona: string; thinking_level: ThinkingLevel; prompt_injection: string };
   type SubagentOption = { name: string; description: string; system: string; model: string; max_result_chars: number };
+  type ExtensionToolInfo = { name: string; description: string };
+  type ExtensionInfo = { id: string; name: string; enabled: boolean; removable: boolean; description: string; path?: string; hooks: string[]; tools: ExtensionToolInfo[] };
+  type ExtensionsInfo = { config_path: string; extensions: ExtensionInfo[] };
   type AiMods = {
     main_model: string;
     main_agent: string;
@@ -99,17 +102,21 @@
   let showMods = false;
   let showWorkspace = false;
   let addingModel = false;
+  let EditorPaneComponent: any = null;
+  let DiffPaneComponent: any = null;
+  let TerminalPaneComponent: any = null;
   let messages: Message[] = [];
+  let messageGroupLimit = 80;
   let messagesEl: HTMLDivElement;
   let streamBuffer = "";
   let streamFrame = 0;
   let fileChangeTimer = 0;
   let streamMessageOpen = false;
   let files: FileEntry[] = [];
-  let fileIndex: FileEntry[] = [];
-  let fileIndexLoaded = false;
-  let fileIndexing = false;
-  let fileIndexTimer = 0;
+  let fileSearchResults: FileEntry[] = [];
+  let fileSearching = false;
+  let fileSearchTimer = 0;
+  let fileSearchTruncated = false;
   let expandedDirs = new Set<string>();
   let loadedDirs = new Set<string>();
   let fileTreeVersion = 0;
@@ -145,11 +152,15 @@
   let draft = { provider: "openai", api_base: "https://api.openai.com/v1", model: "gpt-4o-mini", original_model: "", api_key: "", context_chars: 80000 };
   let modsDraft: AiMods = { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" };
   let modsProfile = "default";
-  let modsTab: "general" | "profile" | "models" | "agents" | "subagents" = "profile";
+  let modsTab: "general" | "profile" | "models" | "agents" | "subagents" | "extensions" = "profile";
   let addingAgent = false;
   let addingSubagent = false;
+  let editingExtension = false;
   let agentDraft = { name: "", original_name: "", description: "", persona: "", thinking_level: "auto" as ThinkingLevel, prompt_injection: "" };
   let subagentDraft = { name: "", original_name: "", description: "", system: "", model: "", max_result_chars: 4000 };
+  let extensionDraft: ExtensionInfo = { id: "", name: "", enabled: false, removable: true, description: "", hooks: [], tools: [] };
+  let creatingExtension = false;
+  let extensionsInfo: ExtensionsInfo = { config_path: "", extensions: [] };
   $: providerOptions = [
     ...config.providers.map((provider): SelectOption => ({ value: provider.name, label: provider.name })),
     { value: "__new__", label: "+ provider" },
@@ -194,6 +205,14 @@
       { label: "del", danger: true, onClick: () => void deleteSubagent(subagent.name) },
     ],
   }));
+  $: extensionItems = extensionsInfo.extensions.map((extension): Item => ({
+    key: extension.id,
+    title: `${extension.name}${extension.enabled ? "" : " (off)"}`,
+    subtitle: extension.description || extension.path || "extension",
+    active: false,
+    onSelect: () => editExtension(extension),
+    actions: [{ label: "edit", onClick: () => editExtension(extension) }],
+  }));
 
   $: modelItems = config.models.map((model): Item => ({
     key: model.name,
@@ -219,9 +238,11 @@
     return !query || session.title.toLowerCase().includes(query) || session.preview.toLowerCase().includes(query);
   });
   $: searchingFiles = Boolean(fileQuery.trim());
-  $: visibleFiles = searchingFiles ? searchIndex(fileIndex, fileQuery) : filterFiles(files, expandedDirs, fileQuery);
+  $: visibleFiles = searchingFiles ? fileSearchResults : filterFiles(files, expandedDirs, "");
   $: expandedFilePaths = searchingFiles ? visibleFiles.filter((file) => file.kind === "dir").map((file) => norm(file.path)) : [...expandedDirs];
   $: messageGroups = groupMessages(messages);
+  $: hiddenMessageGroupCount = Math.max(0, messageGroups.length - messageGroupLimit);
+  $: visibleMessageGroups = hiddenMessageGroupCount > 0 ? messageGroups.slice(hiddenMessageGroupCount) : messageGroups;
   $: activeSessionRunning = sessions.find((session) => session.id === activeSessionId)?.running ?? false;
   $: featureContentSearch = config.features?.content_search ?? true;
   $: featureGit = config.features?.git ?? true;
@@ -266,6 +287,18 @@
     } catch (error) {
       addMessage("error", String(error));
     }
+  }
+
+  async function ensureEditorPane() {
+    EditorPaneComponent ??= (await import("./components/EditorPane.svelte")).default;
+  }
+
+  async function ensureDiffPane() {
+    DiffPaneComponent ??= (await import("./components/DiffPane.svelte")).default;
+  }
+
+  async function ensureTerminalPane() {
+    TerminalPaneComponent ??= (await import("./components/TerminalPane.svelte")).default;
   }
 
   function formatContext(value: number) {
@@ -430,6 +463,14 @@
     if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  function showEarlierMessages() {
+    messageGroupLimit += 80;
+  }
+
+  function isStreamingMessage(group: MessageGroup) {
+    return streamMessageOpen && activeSessionRunning && group.kind === "message" && group.key === `message-${messages.length - 1}` && group.message.role === "assistant";
+  }
+
   function groupMessages(items: Message[]): MessageGroup[] {
     const groups: MessageGroup[] = [];
     let tools: Message[] = [];
@@ -451,6 +492,50 @@
 
     if (tools.length) groups.push({ key: `tools-${toolStart}`, kind: "tools", tools });
     return groups;
+  }
+
+  async function loadExtensionsInfo() {
+    try {
+      extensionsInfo = await invoke<ExtensionsInfo>("extensions_info");
+    } catch (error) {
+      addMessage("error", String(error));
+      extensionsInfo = { config_path: "", extensions: [] };
+    }
+  }
+
+  async function setExtensionEnabled(id: string, enabled: boolean) {
+    try {
+      extensionsInfo = await invoke<ExtensionsInfo>("extensions_set_enabled", { request: { id, enabled } });
+      extensionDraft = { ...extensionDraft, enabled };
+    } catch (error) {
+      addMessage("error", String(error));
+    }
+  }
+
+  function addExtension() {
+    editingExtension = true;
+    creatingExtension = true;
+    extensionDraft = { id: "", name: "New Rust extension", enabled: false, removable: true, description: "Native Rust extension scaffold", hooks: [], tools: [] };
+  }
+
+  function editExtension(extension: ExtensionInfo) {
+    editingExtension = true;
+    creatingExtension = false;
+    extensionDraft = { ...extension, hooks: [...extension.hooks], tools: [...extension.tools] };
+  }
+
+  async function createRustExtension() {
+    try {
+      extensionsInfo = await invoke<ExtensionsInfo>("extensions_create_rust", { request: { id: extensionDraft.id, name: extensionDraft.name, description: extensionDraft.description } });
+      const created = extensionsInfo.extensions.find((extension) => extension.id === extensionDraft.id);
+      if (created) editExtension(created);
+    } catch (error) {
+      addMessage("error", String(error));
+    }
+  }
+
+  function extensionManifestHint(id: string) {
+    return `${extensionsInfo.config_path.replace(/extensions\.toml$/, "extensions") || "~/.sandevistan/extensions"}/${id || "my-extension"}/extension.toml`;
   }
 
   function openConfig() {
@@ -514,7 +599,9 @@
     modsDraft = normalizeMods(config.mods);
     addingAgent = false;
     addingSubagent = false;
+    editingExtension = false;
     showMods = true;
+    void loadExtensionsInfo();
   }
 
   function normalizeMods(value: AiMods): AiMods {
@@ -654,7 +741,17 @@
     return items.filter((message) => message.role === "tool" && /(^|\n)(edited|wrote)\s/.test(message.content)).length;
   }
 
+  function resetStreamState() {
+    if (streamFrame) {
+      cancelAnimationFrame(streamFrame);
+      streamFrame = 0;
+    }
+    streamBuffer = "";
+    streamMessageOpen = false;
+  }
+
   function setSession(session: SessionInfo) {
+    resetStreamState();
     workspace = session.workspace;
     workspaceDraft = session.workspace;
     workspaces = session.workspaces;
@@ -662,6 +759,7 @@
     sessions = session.sessions;
     sessionLabel = session.sessions.find((item) => item.id === session.active_session_id)?.title ?? "session";
     messages = session.messages;
+    messageGroupLimit = 80;
   }
 
   function markActiveSessionRunning(running: boolean) {
@@ -679,35 +777,44 @@
 
   async function loadFiles() {
     files = await invoke<FileEntry[]>("workspace_tree");
-    fileIndex = [];
-    fileIndexLoaded = false;
+    fileSearchResults = [];
+    fileSearchTruncated = false;
     expandedDirs = new Set();
     loadedDirs = new Set();
     fileTreeVersion += 1;
   }
 
-  async function ensureFileIndex() {
-    if (fileIndexLoaded || fileIndexing) return;
-    fileIndexing = true;
-    try {
-      fileIndex = await invoke<FileEntry[]>("workspace_index");
-      fileIndexLoaded = true;
-    } catch (error) {
-      addMessage("error", String(error));
-      fileIndex = [];
-    } finally {
-      fileIndexing = false;
-    }
-  }
-
   function inputFileQuery(event: Event) {
     fileQuery = (event.currentTarget as HTMLInputElement).value;
-    if (fileIndexTimer) window.clearTimeout(fileIndexTimer);
-    if (!fileQuery.trim() || fileIndexLoaded) return;
-    fileIndexTimer = window.setTimeout(() => {
-      fileIndexTimer = 0;
-      void ensureFileIndex();
-    }, 250);
+    if (fileSearchTimer) window.clearTimeout(fileSearchTimer);
+    const query = fileQuery.trim();
+    if (!query) {
+      fileSearchResults = [];
+      fileSearchTruncated = false;
+      fileSearching = false;
+      return;
+    }
+    fileSearching = true;
+    fileSearchTimer = window.setTimeout(() => {
+      fileSearchTimer = 0;
+      void runFileSearch(query);
+    }, 150);
+  }
+
+  async function runFileSearch(query: string) {
+    try {
+      const results = await invoke<FileEntry[]>("workspace_search", { request: { query } });
+      if (fileQuery.trim() !== query) return;
+      fileSearchTruncated = results.length > 500;
+      fileSearchResults = results.slice(0, 500);
+    } catch (error) {
+      if (fileQuery.trim() === query) {
+        fileSearchResults = [];
+        addMessage("error", String(error));
+      }
+    } finally {
+      if (fileQuery.trim() === query) fileSearching = false;
+    }
   }
 
   async function runContentSearch() {
@@ -767,6 +874,7 @@
   async function openGitDiff(path = "") {
     gitLoading = true;
     try {
+      await ensureDiffPane();
       let diff = await invoke<string>("git_diff", { request: { path: path || null } });
       if (!diff.trim()) diff = "no diff";
       const id = `diff:${path || "workspace"}`;
@@ -807,25 +915,6 @@
       return !query || file.name.toLowerCase().includes(query) || file.path.toLowerCase().includes(query);
     });
   }
-
-  function searchIndex(items: FileEntry[], queryText: string) {
-    const query = queryText.trim().toLowerCase();
-    if (!query) return [];
-
-    const paths = new Set<string>();
-    for (const file of items) {
-      if (!file.name.toLowerCase().includes(query) && !file.path.toLowerCase().includes(query)) continue;
-      paths.add(norm(file.path));
-      let parent = parentPath(file.path);
-      while (parent) {
-        paths.add(parent);
-        parent = parentPath(parent);
-      }
-    }
-
-    return items.filter((file) => paths.has(norm(file.path)));
-  }
-
 
   function isChildOf(file: FileEntry, dir: FileEntry) {
     return file.depth === dir.depth + 1 && isDescendantPath(file.path, dir.path);
@@ -872,6 +961,7 @@
     }
 
     try {
+      await ensureEditorPane();
       const file = await invoke<{ path: string; content: string }>("file_read", { request: { path: entry.path } });
       openFiles = [...openFiles, { path: file.path, content: file.content, original: file.content, dirty: false, stale: false, mode: "edit" }];
       activeTab = file.path;
@@ -942,7 +1032,8 @@
     if (activeTab === "chat") activeTab = fallbackTab();
   }
 
-  function openTerminal() {
+  async function openTerminal() {
+    await ensureTerminalPane();
     terminalOpen = true;
     activeTab = "terminal";
   }
@@ -1143,7 +1234,7 @@
       window.clearInterval(poll);
       if (streamFrame) cancelAnimationFrame(streamFrame);
       if (fileChangeTimer) window.clearTimeout(fileChangeTimer);
-      if (fileIndexTimer) window.clearTimeout(fileIndexTimer);
+      if (fileSearchTimer) window.clearTimeout(fileSearchTimer);
       window.removeEventListener("keydown", globalKeydown);
       void invoke("file_watch_stop");
       unlistenChat?.();
@@ -1166,7 +1257,7 @@
     <div class="header-actions">
       <div class="top-profile"><SelectBox value={config.active_profile} options={topProfileOptions} onChange={(value) => void switchProfile(value)} /></div>
       <button class="ghost" type="button" on:click={openMods}>mods</button>
-      <button class="ghost" type="button" on:click={openTerminal}>term</button>
+      <button class="ghost" type="button" on:click={() => void openTerminal()}>term</button>
       <button class="window-close" type="button" aria-label="close" on:click={closeWindow}>×</button>
     </div>
   </header>
@@ -1187,8 +1278,9 @@
 
         {#if sideTab === "files"}
           <input class="side-search" value={fileQuery} on:input={inputFileQuery} placeholder="search" />
-          {#if fileIndexing}<span class="empty-state">indexing...</span>{/if}
-          {#key `${workspace}:${fileTreeVersion}:${fileIndexLoaded}`}
+          {#if fileSearching}<span class="empty-state">searching...</span>{/if}
+          {#if fileSearchTruncated}<span class="empty-state">showing first 500 matches</span>{/if}
+          {#key `${workspace}:${fileTreeVersion}:${searchingFiles ? fileQuery : "tree"}`}
             <FileTree entries={visibleFiles} expandedPaths={expandedFilePaths} onOpen={openFile} />
           {/key}
         {:else if sideTab === "content" && featureContentSearch}
@@ -1258,22 +1350,30 @@
 
       {#each openFiles as file (file.path)}
         <section class="editor-slot" class:hidden-pane={activeTab !== file.path}>
-          <EditorPane
-            {file}
-            onChange={(content) => updateOpenFile(file.path, content)}
-            onDirtyChange={(dirty) => setOpenFileDirty(file.path, dirty)}
-            onMode={(mode) => setFileMode(file.path, mode)}
-            onSave={(content) => void saveOpenFile(file.path, content)}
-          />
+          {#if EditorPaneComponent}
+            <svelte:component
+              this={EditorPaneComponent}
+              {file}
+              onChange={(content: string) => updateOpenFile(file.path, content)}
+              onDirtyChange={(dirty: boolean) => setOpenFileDirty(file.path, dirty)}
+              onMode={(mode: "edit" | "diff") => setFileMode(file.path, mode)}
+              onSave={(content: string) => void saveOpenFile(file.path, content)}
+            />
+          {:else}
+            <section class="empty-editor">loading editor...</section>
+          {/if}
         </section>
       {/each}
 
       {#if activeTab === "chat" && chatOpen}
       <section class="chat" aria-label="AI chat">
         <div class="messages" bind:this={messagesEl}>
-          {#each messageGroups as group (group.key)}
+          {#if hiddenMessageGroupCount > 0}
+            <button class="ghost show-earlier" type="button" on:click={showEarlierMessages}>show {Math.min(80, hiddenMessageGroupCount)} earlier ({hiddenMessageGroupCount} hidden)</button>
+          {/if}
+          {#each visibleMessageGroups as group (group.key)}
             {#if group.kind === "message"}
-              <MessageView role={group.message.role} content={group.message.content} />
+              <MessageView role={group.message.role} content={group.message.content} streaming={isStreamingMessage(group)} />
             {:else}
               <ToolGroup tools={group.tools} />
             {/if}
@@ -1290,10 +1390,18 @@
         </form>
       </section>
       {:else if activeTab === "terminal" && terminalOpen}
-        <TerminalPane id={terminalId} />
+        {#if TerminalPaneComponent}
+          <svelte:component this={TerminalPaneComponent} id={terminalId} />
+        {:else}
+          <section class="empty-editor">loading terminal...</section>
+        {/if}
       {:else if diffTabs.find((tab) => tab.id === activeTab)}
         {@const tab = diffTabs.find((tab) => tab.id === activeTab)!}
-        <DiffPane {tab} />
+        {#if DiffPaneComponent}
+          <svelte:component this={DiffPaneComponent} {tab} />
+        {:else}
+          <section class="empty-editor">loading diff...</section>
+        {/if}
       {:else if !openFiles.find((file) => file.path === activeTab)}
         <section class="empty-editor">open file, terminal, or chat tab</section>
       {/if}
@@ -1347,6 +1455,7 @@
           <button class:active={modsTab === "models"} class="ghost" type="button" on:click={() => (modsTab = "models")}>models</button>
           <button class:active={modsTab === "agents"} class="ghost" type="button" on:click={() => (modsTab = "agents")}>agents</button>
           <button class:active={modsTab === "subagents"} class="ghost" type="button" on:click={() => (modsTab = "subagents")}>subagents</button>
+          <button class:active={modsTab === "extensions"} class="ghost" type="button" on:click={() => { modsTab = "extensions"; void loadExtensionsInfo(); }}>extensions</button>
         </nav>
 
         <section class="mods-content">
@@ -1402,7 +1511,7 @@
               <label>Prompt injection<textarea bind:value={agentDraft.prompt_injection} rows="4"></textarea></label>
               <div class="actions right"><button class="ghost" type="button" on:click={() => (addingAgent = false)}>back</button><button type="button" disabled={!agentDraft.name.trim()} on:click={() => void saveAgent()}>save agent</button><button class="ghost danger" type="button" disabled={!agentDraft.original_name || agentDraft.original_name === "custom"} on:click={() => void deleteAgent(agentDraft.original_name)}>delete</button></div>
             {/if}
-          {:else}
+          {:else if modsTab === "subagents"}
             {#if !addingSubagent}
               <ItemList items={subagentItems} addTitle="+ add subagent" addSubtitle="worker definition" onAdd={addSubagent} />
             {:else}
@@ -1412,6 +1521,27 @@
               <label>Max result chars<input bind:value={subagentDraft.max_result_chars} type="number" min="500" max="20000" step="500" /></label>
               <label>System<textarea bind:value={subagentDraft.system} rows="6" placeholder="subagent role and rules"></textarea></label>
               <div class="actions right"><button class="ghost" type="button" on:click={() => (addingSubagent = false)}>back</button><button type="button" disabled={!subagentDraft.name.trim() || !subagentDraft.system.trim()} on:click={() => void saveSubagent()}>save subagent</button><button class="ghost danger" type="button" disabled={!subagentDraft.original_name} on:click={() => void deleteSubagent(subagentDraft.original_name)}>delete</button></div>
+            {/if}
+          {:else if modsTab === "extensions"}
+            {#if !editingExtension}
+              <p class="hint">Config: {extensionsInfo.config_path || "~/.sandevistan/extensions.toml"}</p>
+              <ItemList items={extensionItems} addTitle="+ rust extension" addSubtitle="native binary scaffold" onAdd={addExtension} />
+            {:else}
+              <label>Extension id<input bind:value={extensionDraft.id} disabled={!creatingExtension && Boolean(extensionDraft.path)} placeholder="my-extension" /></label>
+              <label>Name<input bind:value={extensionDraft.name} disabled={!creatingExtension} /></label>
+              <label>Description<textarea bind:value={extensionDraft.description} disabled={!creatingExtension} rows="3"></textarea></label>
+              <div class="feature-list compact-feature-list">
+                <div class="side-title">status</div>
+                <Checkbox checked={extensionDraft.enabled} label={`enabled: ${extensionDraft.enabled ? "on" : "off"}`} disabled={creatingExtension || !extensionDraft.id.trim()} onChange={(checked) => void setExtensionEnabled(extensionDraft.id, checked)} />
+                {#if extensionDraft.hooks.length}<p class="hint">hooks: {extensionDraft.hooks.join(", ")}</p>{/if}
+                {#if extensionDraft.tools.length}<p class="hint">tools: {extensionDraft.tools.map((tool) => tool.name).join(", ")}</p>{/if}
+                {#if extensionDraft.path}<p class="hint">manifest: {extensionDraft.path}</p>{:else}<p class="hint">create manifest: {extensionManifestHint(extensionDraft.id)}</p>{/if}
+              </div>
+              <div class="actions right">
+                <button class="ghost" type="button" on:click={() => (editingExtension = false)}>back</button>
+                {#if creatingExtension}<button type="button" disabled={!extensionDraft.id.trim()} on:click={() => void createRustExtension()}>create rust extension</button>{/if}
+                <button class="ghost" type="button" on:click={() => void loadExtensionsInfo()}>reload</button>
+              </div>
             {/if}
           {/if}
         </section>

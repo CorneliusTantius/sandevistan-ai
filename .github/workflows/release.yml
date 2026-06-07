@@ -79,11 +79,11 @@ jobs:
           cp src-tauri/target/release/bundle/rpm/*.rpm "release-assets/sandevistan-${VERSION}-x86.rpm"
 
           cp src-tauri/target/release/sandevistan linux-tar/sandevistan/bin/sandevistan-bin
-          cp packaging/linux/sandevistan linux-tar/sandevistan/bin/sandevistan
-          cp packaging/linux/install.sh linux-tar/sandevistan/install.sh
-          cp packaging/linux/uninstall.sh linux-tar/sandevistan/uninstall.sh
-          cp packaging/linux/README.md linux-tar/sandevistan/README.md
-          cp packaging/linux/sandevistan.desktop linux-tar/sandevistan/share/applications/sandevistan.desktop
+          cp .github/packaging/linux/sandevistan linux-tar/sandevistan/bin/sandevistan
+          cp .github/packaging/linux/install.sh linux-tar/sandevistan/install.sh
+          cp .github/packaging/linux/uninstall.sh linux-tar/sandevistan/uninstall.sh
+          cp .github/packaging/linux/README.md linux-tar/sandevistan/README.md
+          cp .github/packaging/linux/sandevistan.desktop linux-tar/sandevistan/share/applications/sandevistan.desktop
           cp src-tauri/icons/128x128.png linux-tar/sandevistan/share/icons/hicolor/128x128/apps/sandevistan.png
           chmod +x linux-tar/sandevistan/bin/sandevistan linux-tar/sandevistan/bin/sandevistan-bin linux-tar/sandevistan/install.sh linux-tar/sandevistan/uninstall.sh
           tar -C linux-tar -czf "release-assets/sandevistan-${VERSION}.tar.gz" sandevistan

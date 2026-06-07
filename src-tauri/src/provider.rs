@@ -949,8 +949,9 @@ fn native_call_from_parts(id: String, openai_name: String, args: String) -> Opti
         serde_json::from_str::<Value>(&args).unwrap_or_else(|_| json!({}))
     };
     let name = tools::original_tool_name(&openai_name)
-        .unwrap_or(openai_name.as_str())
-        .to_string();
+        .map(str::to_string)
+        .or_else(|| crate::extensions::original_tool_name(&openai_name))
+        .unwrap_or_else(|| openai_name.clone());
     Some(NativeToolCall {
         id,
         name,

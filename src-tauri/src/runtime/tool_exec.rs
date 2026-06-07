@@ -1,4 +1,8 @@
-use crate::{ai, subagent, tools};
+use crate::{
+    ai,
+    extensions::hooks::{HookDecision, HookEvent},
+    subagent, tools,
+};
 use std::{path::PathBuf, time::Duration};
 
 use super::{budget::AgentBudgets, tool_validation::validate_tool_call};
@@ -13,10 +17,47 @@ pub async fn run_streamed_tool_call(
 ) -> String {
     let name = call.name.clone();
 
-    let call = match validate_tool_call(call, &mods, read_only) {
-        Ok(validated) => validated.call,
-        Err(error) => return failed_tool_content(&name, &format!("invalid tool call: {error}")),
+    let mut call = if crate::extensions::is_extension_tool(&call.name) {
+        if !call.args.is_object() {
+            return failed_tool_content(&name, "invalid tool call: args must be a JSON object");
+        }
+        call
+    } else {
+        match validate_tool_call(call, &mods, read_only) {
+            Ok(validated) => validated.call,
+            Err(error) => {
+                return failed_tool_content(&name, &format!("invalid tool call: {error}"))
+            }
+        }
     };
+
+    let mut modified = false;
+    for decision in crate::extensions::hook_bus(&workspace).emit(HookEvent::BeforeToolCall {
+        tool: call.name.clone(),
+        args: call.args.clone(),
+    }) {
+        match decision {
+            HookDecision::Block { reason } => return failed_tool_content(&name, &reason),
+            HookDecision::ModifyToolArgs { args } => {
+                call.args = args;
+                modified = true;
+            }
+            HookDecision::Continue | HookDecision::AppendSystemContext { .. } => {}
+        }
+    }
+    if modified && !crate::extensions::is_extension_tool(&call.name) {
+        call = match validate_tool_call(call, &mods, read_only) {
+            Ok(validated) => validated.call,
+            Err(error) => {
+                return failed_tool_content(&name, &format!("modified tool call invalid: {error}"))
+            }
+        };
+    }
+
+    if crate::extensions::is_extension_tool(&call.name) {
+        let output = crate::extensions::execute_tool(&workspace, &call.name, call.args);
+        return format!("{name}\n{output}");
+    }
 
     let output = run_tool_call(
         workspace,

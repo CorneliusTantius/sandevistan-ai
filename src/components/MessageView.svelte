@@ -2,6 +2,7 @@
   export type Role = "user" | "assistant" | "tool" | "error";
   export let role: Role;
   export let content = "";
+  export let streaming = false;
 
   type Block =
     | { kind: "code"; lang: string; text: string }
@@ -11,8 +12,8 @@
     | { kind: "text"; text: string };
 
   let toolLevel = 0;
-  $: renderedContent = renderedOnly(content);
-  $: blocks = parseMarkdown(renderedContent);
+  $: renderedContent = streaming ? content : renderedOnly(content);
+  $: blocks = streaming ? [] : parseMarkdown(renderedContent);
   $: toolTitle = content.split("\n", 1)[0] || "tool";
   $: toolBody = content.split("\n").slice(1).join("\n").trim();
   $: toolFailed = /^status:\s*failed\b/m.test(content);
@@ -122,6 +123,8 @@
     {:else if toolLevel === 2}
       <pre class="tool-body">{toolBody}</pre>
     {/if}
+  {:else if streaming}
+    <pre class="streaming-text">{renderedContent}</pre>
   {:else}
     <div class="markdown">
       {#each blocks as block}
@@ -262,6 +265,14 @@
   li {
     color: var(--text);
     white-space: pre-wrap;
+  }
+
+  .streaming-text {
+    margin: 0;
+    color: var(--text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: inherit;
   }
 
   .code,
