@@ -6,6 +6,7 @@ pub mod external;
 pub mod hooks;
 pub mod manifest;
 pub mod protocol;
+pub mod scaffold;
 
 #[derive(Debug, Serialize)]
 pub struct ExtensionsInfo {
@@ -126,6 +127,12 @@ pub fn original_tool_name(openai_name: &str) -> Option<String> {
 
 fn manifest_enabled(manifest: &manifest::ExtensionManifest) -> bool {
     config::extension_enabled(&manifest.id, manifest.enabled.unwrap_or(false))
+}
+
+pub fn create_rust_extension(
+    request: scaffold::CreateRustExtensionRequest,
+) -> Result<String, String> {
+    scaffold::create_rust_extension(request).map(|path| path.display().to_string())
 }
 
 pub fn set_enabled(id: &str, enabled: bool) -> Result<(), String> {

@@ -18,9 +18,7 @@ pub fn emit(workspace: &Path, event: &HookEvent) -> Vec<HookDecision> {
     let hook = hook_name(event);
     let mut decisions = Vec::new();
     for manifest in manifest::discover(workspace) {
-        if !manifest_enabled(&manifest)
-            || manifest.command.as_deref().unwrap_or_default().is_empty()
-        {
+        if !manifest_enabled(&manifest) || command_for_manifest(&manifest).is_none() {
             continue;
         }
         if !manifest.hooks.iter().any(|entry| entry == hook) {
@@ -50,9 +48,7 @@ pub fn emit(workspace: &Path, event: &HookEvent) -> Vec<HookDecision> {
 pub fn extension_tools(workspace: &Path) -> Vec<(String, protocol::ExtensionToolSpec)> {
     let mut tools = Vec::new();
     for manifest in manifest::discover(workspace) {
-        if !manifest_enabled(&manifest)
-            || manifest.command.as_deref().unwrap_or_default().is_empty()
-        {
+        if !manifest_enabled(&manifest) || command_for_manifest(&manifest).is_none() {
             continue;
         }
         let request = protocol::ExtensionRequest {
@@ -92,7 +88,7 @@ pub fn execute_tool(
         .into_iter()
         .find(|manifest| manifest.id == extension_id && manifest_enabled(manifest))
         .ok_or_else(|| format!("extension not found or disabled: {extension_id}"))?;
-    if manifest.command.as_deref().unwrap_or_default().is_empty() {
+    if command_for_manifest(&manifest).is_none() {
         return Err(format!("extension command missing: {extension_id}"));
     }
     let request = protocol::ExtensionRequest {
@@ -119,15 +115,23 @@ fn manifest_enabled(manifest: &manifest::ExtensionManifest) -> bool {
     config::extension_enabled(&manifest.id, manifest.enabled.unwrap_or(false))
 }
 
+fn command_for_manifest(manifest: &manifest::ExtensionManifest) -> Option<&str> {
+    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    manifest
+        .commands
+        .get(platform.as_str())
+        .or_else(|| manifest.commands.get(std::env::consts::OS))
+        .or_else(|| manifest.commands.get("default"))
+        .map(String::as_str)
+        .or(manifest.command.as_deref())
+}
+
 fn call_extension(
     manifest: &manifest::ExtensionManifest,
     request: &protocol::ExtensionRequest,
     timeout: Duration,
 ) -> Result<protocol::ExtensionResponse, String> {
-    let command = manifest
-        .command
-        .as_deref()
-        .ok_or_else(|| "missing command".to_string())?;
+    let command = command_for_manifest(manifest).ok_or_else(|| "missing command".to_string())?;
     let mut child = Command::new(command)
         .args(&manifest.args)
         .current_dir(manifest.path.parent().unwrap_or_else(|| Path::new(".")))

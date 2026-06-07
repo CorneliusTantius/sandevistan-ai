@@ -76,6 +76,13 @@ struct ExtensionToggleRequest {
     enabled: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct ExtensionCreateRequest {
+    id: String,
+    name: Option<String>,
+    description: Option<String>,
+}
+
 #[tauri::command]
 fn extensions_info(
     chat: tauri::State<'_, agent::ChatRuntime>,
@@ -90,6 +97,20 @@ fn extensions_set_enabled(
     chat: tauri::State<'_, agent::ChatRuntime>,
 ) -> Result<extensions::ExtensionsInfo, String> {
     extensions::set_enabled(&request.id, request.enabled)?;
+    let workspace = chat.workspace()?;
+    Ok(extensions::info(&workspace))
+}
+
+#[tauri::command]
+fn extensions_create_rust(
+    request: ExtensionCreateRequest,
+    chat: tauri::State<'_, agent::ChatRuntime>,
+) -> Result<extensions::ExtensionsInfo, String> {
+    extensions::create_rust_extension(extensions::scaffold::CreateRustExtensionRequest {
+        id: request.id,
+        name: request.name,
+        description: request.description,
+    })?;
     let workspace = chat.workspace()?;
     Ok(extensions::info(&workspace))
 }
@@ -306,6 +327,7 @@ pub fn run() {
             ai_delete_subagent,
             extensions_info,
             extensions_set_enabled,
+            extensions_create_rust,
             chat_session,
             chat_set_workspace,
             chat_delete_workspace,

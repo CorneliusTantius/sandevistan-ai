@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -12,6 +13,8 @@ pub struct ExtensionManifest {
     pub description: Option<String>,
     pub enabled: Option<bool>,
     pub command: Option<String>,
+    #[serde(default)]
+    pub commands: HashMap<String, String>,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]

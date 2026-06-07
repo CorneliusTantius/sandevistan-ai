@@ -159,6 +159,7 @@
   let agentDraft = { name: "", original_name: "", description: "", persona: "", thinking_level: "auto" as ThinkingLevel, prompt_injection: "" };
   let subagentDraft = { name: "", original_name: "", description: "", system: "", model: "", max_result_chars: 4000 };
   let extensionDraft: ExtensionInfo = { id: "", name: "", enabled: false, removable: true, description: "", hooks: [], tools: [] };
+  let creatingExtension = false;
   let extensionsInfo: ExtensionsInfo = { config_path: "", extensions: [] };
   $: providerOptions = [
     ...config.providers.map((provider): SelectOption => ({ value: provider.name, label: provider.name })),
@@ -513,12 +514,24 @@
 
   function addExtension() {
     editingExtension = true;
-    extensionDraft = { id: "", name: "New external extension", enabled: false, removable: true, description: "Create ~/.sandevistan/extensions/<id>/extension.toml", hooks: [], tools: [] };
+    creatingExtension = true;
+    extensionDraft = { id: "", name: "New Rust extension", enabled: false, removable: true, description: "Native Rust extension scaffold", hooks: [], tools: [] };
   }
 
   function editExtension(extension: ExtensionInfo) {
     editingExtension = true;
+    creatingExtension = false;
     extensionDraft = { ...extension, hooks: [...extension.hooks], tools: [...extension.tools] };
+  }
+
+  async function createRustExtension() {
+    try {
+      extensionsInfo = await invoke<ExtensionsInfo>("extensions_create_rust", { request: { id: extensionDraft.id, name: extensionDraft.name, description: extensionDraft.description } });
+      const created = extensionsInfo.extensions.find((extension) => extension.id === extensionDraft.id);
+      if (created) editExtension(created);
+    } catch (error) {
+      addMessage("error", String(error));
+    }
   }
 
   function extensionManifestHint(id: string) {
@@ -1514,17 +1527,21 @@
               <p class="hint">Config: {extensionsInfo.config_path || "~/.sandevistan/extensions.toml"}</p>
               <ItemList items={extensionItems} addTitle="+ add extension" addSubtitle="manifest folder" onAdd={addExtension} />
             {:else}
-              <label>Extension id<input bind:value={extensionDraft.id} disabled={Boolean(extensionDraft.path)} placeholder="my-extension" /></label>
-              <label>Name<input bind:value={extensionDraft.name} disabled /></label>
-              <label>Description<textarea bind:value={extensionDraft.description} disabled rows="3"></textarea></label>
+              <label>Extension id<input bind:value={extensionDraft.id} disabled={!creatingExtension && Boolean(extensionDraft.path)} placeholder="my-extension" /></label>
+              <label>Name<input bind:value={extensionDraft.name} disabled={!creatingExtension} /></label>
+              <label>Description<textarea bind:value={extensionDraft.description} disabled={!creatingExtension} rows="3"></textarea></label>
               <div class="feature-list compact-feature-list">
                 <div class="side-title">status</div>
-                <Checkbox checked={extensionDraft.enabled} label={`enabled: ${extensionDraft.enabled ? "on" : "off"}`} disabled={!extensionDraft.id.trim()} onChange={(checked) => void setExtensionEnabled(extensionDraft.id, checked)} />
+                <Checkbox checked={extensionDraft.enabled} label={`enabled: ${extensionDraft.enabled ? "on" : "off"}`} disabled={creatingExtension || !extensionDraft.id.trim()} onChange={(checked) => void setExtensionEnabled(extensionDraft.id, checked)} />
                 {#if extensionDraft.hooks.length}<p class="hint">hooks: {extensionDraft.hooks.join(", ")}</p>{/if}
                 {#if extensionDraft.tools.length}<p class="hint">tools: {extensionDraft.tools.map((tool) => tool.name).join(", ")}</p>{/if}
                 {#if extensionDraft.path}<p class="hint">manifest: {extensionDraft.path}</p>{:else}<p class="hint">create manifest: {extensionManifestHint(extensionDraft.id)}</p>{/if}
               </div>
-              <div class="actions right"><button class="ghost" type="button" on:click={() => (editingExtension = false)}>back</button><button class="ghost" type="button" on:click={() => void loadExtensionsInfo()}>reload</button></div>
+              <div class="actions right">
+                <button class="ghost" type="button" on:click={() => (editingExtension = false)}>back</button>
+                {#if creatingExtension}<button type="button" disabled={!extensionDraft.id.trim()} on:click={() => void createRustExtension()}>create rust extension</button>{/if}
+                <button class="ghost" type="button" on:click={() => void loadExtensionsInfo()}>reload</button>
+              </div>
             {/if}
           {/if}
         </section>
