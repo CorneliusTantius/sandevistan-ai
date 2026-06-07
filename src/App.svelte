@@ -104,6 +104,7 @@
   let promptUndoStack: TextSnapshot[] = [];
   let promptRedoStack: TextSnapshot[] = [];
   let busy = false;
+  let compacting = false;
   let showConfig = false;
   let showMods = false;
   let showWorkspace = false;
@@ -250,7 +251,7 @@
   $: messageGroups = groupMessages(messages);
   $: hiddenMessageGroupCount = Math.max(0, messageGroups.length - messageGroupLimit);
   $: visibleMessageGroups = hiddenMessageGroupCount > 0 ? messageGroups.slice(hiddenMessageGroupCount) : messageGroups;
-  $: activeSessionRunning = sessions.find((session) => session.id === activeSessionId)?.running ?? false;
+  $: activeSessionRunning = compacting || (sessions.find((session) => session.id === activeSessionId)?.running ?? false);
   $: featureContentSearch = config.features?.content_search ?? true;
   $: featureGit = config.features?.git ?? true;
   $: featureFileWatcher = config.features?.file_watcher ?? true;
@@ -1254,6 +1255,19 @@
     }
   }
 
+  async function compactSession() {
+    if (busy || activeSessionRunning) return;
+    compacting = true;
+    addMessage("assistant", "Compacting session...");
+    try {
+      setSession(await invoke<SessionInfo>("chat_compact"));
+    } catch (error) {
+      addMessage("error", String(error));
+    } finally {
+      compacting = false;
+    }
+  }
+
   async function cancelPrompt() {
     try {
       setSession(await invoke<SessionInfo>("chat_cancel"));
@@ -1525,7 +1539,7 @@
         </div>
 
         {#if activeSessionRunning}
-          <div class="running-status" role="status" aria-live="polite"><span class="run-dot" aria-hidden="true"></span>running...</div>
+          <div class="running-status" role="status" aria-live="polite"><span class="run-dot" aria-hidden="true"></span>{compacting ? "compacting..." : "running..."}</div>
         {/if}
         <form class="prompt-form" on:submit|preventDefault={sendPrompt}>
           {#if mentionResults.length}
@@ -1539,7 +1553,8 @@
           {/if}
           <textarea bind:this={promptEl} value={prompt} on:beforeinput={rememberPromptSnapshot} on:input={inputPrompt} on:keydown={keydown} rows="4" placeholder="message · @file · Enter = send · Shift+Enter = newline" autocomplete="off"></textarea>
           <button type="submit" disabled={busy || activeSessionRunning || !prompt.trim()}>send</button>
-          <button class="ghost danger" type="button" disabled={!activeSessionRunning} on:click={() => void cancelPrompt()}>abort</button>
+          <button class="ghost" type="button" disabled={busy || activeSessionRunning || messages.length < 2} on:click={() => void compactSession()}>compact</button>
+          <button class="ghost danger" type="button" disabled={!activeSessionRunning || compacting} on:click={() => void cancelPrompt()}>abort</button>
         </form>
       </section>
       {:else if activeTab === "terminal" && terminalOpen}

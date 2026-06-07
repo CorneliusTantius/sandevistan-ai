@@ -414,6 +414,20 @@ impl ChatRuntime {
         session_info(&state.workspace, &state.active_session_id)
     }
 
+    pub async fn compact_active(&self) -> Result<SessionInfo, String> {
+        let state = self.snapshot()?;
+        if self
+            .tasks
+            .lock()
+            .map_err(|_| "task lock poisoned".to_string())?
+            .contains_key(&state.active_session_id)
+        {
+            return Err("session is running".into());
+        }
+        compact_session(&state.workspace, &state.active_session_id).await?;
+        session_info(&state.workspace, &state.active_session_id)
+    }
+
     fn snapshot(&self) -> Result<RuntimeState, String> {
         self.state
             .lock()
@@ -449,6 +463,89 @@ fn cancel_session(workspace: &PathBuf, session_id: &str) -> Result<(), String> {
         meta.running = false;
     }
     save_session_file(workspace, &file)?;
+    save_index(workspace, &index)
+}
+
+async fn compact_session(workspace: &PathBuf, session_id: &str) -> Result<(), String> {
+    const KEEP_RECENT: usize = 8;
+    const MAX_SOURCE_CHARS: usize = 28_000;
+    const MAX_MESSAGE_CHARS: usize = 2_000;
+    const MAX_SUMMARY_CHARS: usize = 4_000;
+
+    let mut index = ensure_index(workspace);
+    if index
+        .sessions
+        .iter()
+        .any(|session| session.id == session_id && session.running)
+    {
+        return Err("session is running".into());
+    }
+
+    let mut file = load_session_file(workspace, session_id)?;
+    if file.messages.len() <= KEEP_RECENT + 1 {
+        return Ok(());
+    }
+
+    let source = file
+        .messages
+        .iter()
+        .map(|message| {
+            format!(
+                "{}: {}",
+                message.role,
+                truncate_summary_source(&message.content, MAX_MESSAGE_CHARS)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("
+
+");
+    let source = truncate_summary_source(&source, MAX_SOURCE_CHARS);
+    let prompt = vec![
+        ChatMessage {
+            role: "system".into(),
+            content: "Compact this coding session for continuation. Preserve user goals, decisions, files changed, commands, errors, current state, and pending work. Be concise but complete. Max 4000 chars.".into(),
+        },
+        ChatMessage {
+            role: "user".into(),
+            content: source,
+        },
+    ];
+
+    let summary = ai::complete_chat(prompt)
+        .await
+        .map(|value| truncate_summary_source(value.trim(), MAX_SUMMARY_CHARS))?;
+    let recent_start = file.messages.len().saturating_sub(KEEP_RECENT);
+    let recent = file.messages[recent_start..].to_vec();
+    file.messages = vec![ChatMessage {
+        role: "assistant".into(),
+        content: format!("Session compacted. Summary:
+
+{summary}"),
+    }];
+    file.messages.extend(recent);
+
+    if let Some(meta) = index
+        .sessions
+        .iter_mut()
+        .find(|session| session.id == session_id)
+    {
+        meta.preview = preview_from_messages(&file.messages);
+        meta.message_count = file.messages.len();
+        meta.updated_at = now_ms();
+        meta.running = false;
+    }
+
+    save_session_file(workspace, &file)?;
+    save_session_summary(
+        workspace,
+        session_id,
+        &SessionSummary {
+            summary,
+            last_message_count: 1,
+            updated_at: now_ms(),
+        },
+    )?;
     save_index(workspace, &index)
 }
 

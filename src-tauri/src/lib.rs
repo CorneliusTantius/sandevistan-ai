@@ -180,6 +180,11 @@ fn chat_cancel(chat: tauri::State<'_, agent::ChatRuntime>) -> Result<agent::Sess
 }
 
 #[tauri::command]
+async fn chat_compact(chat: tauri::State<'_, agent::ChatRuntime>) -> Result<agent::SessionInfo, String> {
+    chat.compact_active().await
+}
+
+#[tauri::command]
 fn workspace_tree(
     chat: tauri::State<'_, agent::ChatRuntime>,
 ) -> Result<Vec<files::FileEntry>, String> {
@@ -336,6 +341,7 @@ pub fn run() {
             chat_search_sessions,
             chat_send,
             chat_cancel,
+            chat_compact,
             workspace_tree,
             workspace_children,
             workspace_index,
