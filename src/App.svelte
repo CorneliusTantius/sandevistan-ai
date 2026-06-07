@@ -83,7 +83,7 @@
     has_api_key: false,
     providers: [],
     models: [],
-    features: { content_search: true, git: true, file_watcher: false },
+    features: { content_search: true, git: true, file_watcher: true },
     mods: { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" },
     active_profile: "default",
     profiles: [{ name: "default", main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" }],
@@ -95,6 +95,12 @@
 
   let modelLabel = "model";
   let prompt = "";
+  let promptEl: HTMLTextAreaElement;
+  let mentionQuery = "";
+  let mentionStart = -1;
+  let mentionResults: FileEntry[] = [];
+  let mentionIndex = 0;
+  let mentionTimer = 0;
   let promptUndoStack: TextSnapshot[] = [];
   let promptRedoStack: TextSnapshot[] = [];
   let busy = false;
@@ -112,6 +118,7 @@
   let streamFrame = 0;
   let fileChangeTimer = 0;
   let streamMessageOpen = false;
+  let liveSessions: Record<string, { messages: Message[]; streamBuffer: string; streamMessageOpen: boolean }> = {};
   let files: FileEntry[] = [];
   let fileSearchResults: FileEntry[] = [];
   let fileSearching = false;
@@ -246,7 +253,7 @@
   $: activeSessionRunning = sessions.find((session) => session.id === activeSessionId)?.running ?? false;
   $: featureContentSearch = config.features?.content_search ?? true;
   $: featureGit = config.features?.git ?? true;
-  $: featureFileWatcher = config.features?.file_watcher ?? false;
+  $: featureFileWatcher = config.features?.file_watcher ?? true;
   $: if (sideTab === "content" && !featureContentSearch) sideTab = "files";
   $: if (sideTab === "git" && !featureGit) sideTab = "files";
   $: sessionItems = visibleSessions.map((session): Item => ({
@@ -377,15 +384,28 @@
     }, 300);
   }
 
-  function handleStream(event: ChatStreamEvent) {
-    if (event.session_id !== activeSessionId) return;
+  function saveLiveSession(sessionId: string) {
+    if (!sessionId) return;
+    liveSessions = { ...liveSessions, [sessionId]: { messages, streamBuffer, streamMessageOpen } };
+  }
+
+  function loadLiveSession(sessionId: string) {
+    const live = liveSessions[sessionId];
+    if (!live) return false;
+    messages = live.messages;
+    streamBuffer = live.streamBuffer;
+    streamMessageOpen = live.streamMessageOpen;
+    return true;
+  }
+
+  function applyStreamEvent(event: ChatStreamEvent, visible: boolean) {
     if (event.kind === "start") {
       streamBuffer = "";
       ensureStreamMessage();
     } else if (event.kind === "delta") {
       ensureStreamMessage();
       streamBuffer += event.text ?? "";
-      scheduleStreamFlush();
+      visible ? scheduleStreamFlush() : flushStreamBuffer();
     } else if (event.kind === "tool") {
       flushStreamNow();
       upsertToolMessage(event.content ?? "");
@@ -396,8 +416,27 @@
     } else if (event.kind === "done") {
       flushStreamNow();
       streamMessageOpen = false;
-      void loadSession();
+      const { [event.session_id]: _done, ...rest } = liveSessions;
+      liveSessions = rest;
+      if (visible) void loadSession();
     }
+  }
+
+  function handleStream(event: ChatStreamEvent) {
+    const visible = event.session_id === activeSessionId;
+    if (visible) {
+      applyStreamEvent(event, true);
+      if (event.kind !== "done") saveLiveSession(event.session_id);
+      return;
+    }
+
+    const current = { messages, streamBuffer, streamMessageOpen };
+    loadLiveSession(event.session_id);
+    applyStreamEvent(event, false);
+    if (event.kind !== "done") saveLiveSession(event.session_id);
+    messages = current.messages;
+    streamBuffer = current.streamBuffer;
+    streamMessageOpen = current.streamMessageOpen;
   }
 
   function textSnapshot(target: HTMLTextAreaElement): TextSnapshot {
@@ -431,6 +470,61 @@
 
   function inputPrompt(event: Event) {
     prompt = (event.currentTarget as HTMLTextAreaElement).value;
+    updateMention(event.currentTarget as HTMLTextAreaElement);
+  }
+
+  function mentionToken(target: HTMLTextAreaElement) {
+    const before = prompt.slice(0, target.selectionStart);
+    const match = /(^|\s)@([^\s@]*)$/.exec(before);
+    if (!match) return null;
+    return { start: before.length - match[2].length - 1, query: match[2] };
+  }
+
+  function updateMention(target = promptEl) {
+    if (!target) return closeMention();
+    const token = mentionToken(target);
+    if (!token) return closeMention();
+    mentionStart = token.start;
+    mentionQuery = token.query;
+    mentionIndex = 0;
+    if (mentionTimer) window.clearTimeout(mentionTimer);
+    mentionTimer = window.setTimeout(() => {
+      mentionTimer = 0;
+      void runMentionSearch(token.query);
+    }, 120);
+  }
+
+  function closeMention() {
+    mentionQuery = "";
+    mentionStart = -1;
+    mentionResults = [];
+    mentionIndex = 0;
+    if (mentionTimer) {
+      window.clearTimeout(mentionTimer);
+      mentionTimer = 0;
+    }
+  }
+
+  async function runMentionSearch(query: string) {
+    try {
+      const results = await invoke<FileEntry[]>("workspace_search", { request: { query } });
+      if (query !== mentionQuery) return;
+      mentionResults = results.filter((entry) => entry.kind === "file").slice(0, 8);
+    } catch {
+      mentionResults = [];
+    }
+  }
+
+  function insertMention(entry: FileEntry) {
+    if (!promptEl || mentionStart < 0) return;
+    const end = promptEl.selectionStart;
+    prompt = `${prompt.slice(0, mentionStart)}@${entry.path} ${prompt.slice(end)}`;
+    closeMention();
+    requestAnimationFrame(() => {
+      const pos = mentionStart + entry.path.length + 2;
+      promptEl.focus();
+      promptEl.setSelectionRange(pos, pos);
+    });
   }
 
   function clearPromptHistory() {
@@ -751,6 +845,7 @@
   }
 
   function setSession(session: SessionInfo) {
+    saveLiveSession(activeSessionId);
     resetStreamState();
     workspace = session.workspace;
     workspaceDraft = session.workspace;
@@ -759,6 +854,7 @@
     sessions = session.sessions;
     sessionLabel = session.sessions.find((item) => item.id === session.active_session_id)?.title ?? "session";
     messages = session.messages;
+    loadLiveSession(session.active_session_id);
     messageGroupLimit = 80;
   }
 
@@ -1118,17 +1214,33 @@
     renameDraft = "";
   }
 
+  async function expandFileReferences(input: string) {
+    const paths = [...new Set([...input.matchAll(/(?:^|\s)@([^\s@]+)/g)].map((match) => match[1]))];
+    const files: string[] = [];
+    for (const path of paths.slice(0, 8)) {
+      try {
+        const file = await invoke<{ path: string; content: string }>("file_read", { request: { path } });
+        files.push(`--- ${file.path} ---\n${file.content}`);
+      } catch {
+        // Ignore unresolved refs; the raw @path remains in the prompt.
+      }
+    }
+    if (!files.length) return input;
+    return `${input}\n\nReferenced files:\n${files.join("\n\n")}`;
+  }
+
   async function sendPrompt() {
     const input = prompt.trim();
     if (!input || busy) return;
 
     prompt = "";
+    closeMention();
     clearPromptHistory();
     busy = true;
     addMessage("user", input);
 
     try {
-      await invoke("chat_send", { prompt: input });
+      await invoke("chat_send", { prompt: await expandFileReferences(input) });
       markActiveSessionRunning(true);
     } catch (error) {
       addMessage("error", String(error));
@@ -1187,6 +1299,24 @@
 
   function keydown(event: KeyboardEvent) {
     if (handlePromptUndoRedo(event)) return;
+
+    if (mentionResults.length) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        mentionIndex = (mentionIndex + (event.key === "ArrowDown" ? 1 : -1) + mentionResults.length) % mentionResults.length;
+        return;
+      }
+      if (event.key === "Tab" || event.key === "Enter") {
+        event.preventDefault();
+        insertMention(mentionResults[mentionIndex]);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMention();
+        return;
+      }
+    }
 
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -1384,7 +1514,16 @@
           <div class="running-status" role="status" aria-live="polite"><span class="run-dot" aria-hidden="true"></span>running...</div>
         {/if}
         <form class="prompt-form" on:submit|preventDefault={sendPrompt}>
-          <textarea value={prompt} on:beforeinput={rememberPromptSnapshot} on:input={inputPrompt} on:keydown={keydown} rows="4" placeholder="message · Enter = send · Shift+Enter = newline" autocomplete="off"></textarea>
+          {#if mentionResults.length}
+            <div class="mention-menu">
+              {#each mentionResults as entry, index (entry.path)}
+                <button class:active={index === mentionIndex} type="button" on:mousedown|preventDefault={() => insertMention(entry)}>
+                  <span>{entry.path}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+          <textarea bind:this={promptEl} value={prompt} on:beforeinput={rememberPromptSnapshot} on:input={inputPrompt} on:keydown={keydown} rows="4" placeholder="message · @file · Enter = send · Shift+Enter = newline" autocomplete="off"></textarea>
           <button type="submit" disabled={busy || activeSessionRunning || !prompt.trim()}>send</button>
           <button class="ghost danger" type="button" disabled={!activeSessionRunning} on:click={() => void cancelPrompt()}>abort</button>
         </form>

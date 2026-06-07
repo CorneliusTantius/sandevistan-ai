@@ -697,7 +697,7 @@ fn default_features() -> HashMap<String, bool> {
     HashMap::from([
         ("content_search".into(), true),
         ("git".into(), true),
-        ("file_watcher".into(), false),
+        ("file_watcher".into(), true),
     ])
 }
 

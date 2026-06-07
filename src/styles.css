@@ -486,10 +486,53 @@ h2 {
 }
 
 .prompt-form {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: end;
   gap: 8px;
+}
+
+.mention-menu {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--panel);
+  background: var(--black);
+}
+
+.mention-menu button {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  min-height: 0;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  background: var(--surface);
+  text-align: left;
+}
+
+.mention-menu button.active,
+.mention-menu button:hover,
+.mention-menu button:focus-visible {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+.mention-menu span {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .running-status {
