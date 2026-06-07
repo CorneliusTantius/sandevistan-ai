@@ -76,6 +76,13 @@ struct ExtensionToggleRequest {
     enabled: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct ExtensionCreateRequest {
+    id: String,
+    name: Option<String>,
+    description: Option<String>,
+}
+
 #[tauri::command]
 fn extensions_info(
     chat: tauri::State<'_, agent::ChatRuntime>,
