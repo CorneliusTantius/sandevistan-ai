@@ -5,7 +5,7 @@ use super::{
 };
 use std::{
     io::Write,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -126,15 +126,29 @@ fn command_for_manifest(manifest: &manifest::ExtensionManifest) -> Option<&str> 
         .or(manifest.command.as_deref())
 }
 
+fn resolved_command(manifest: &manifest::ExtensionManifest) -> Result<PathBuf, String> {
+    let command = command_for_manifest(manifest).ok_or_else(|| "missing command".to_string())?;
+    let path = PathBuf::from(command);
+    if path.is_absolute() {
+        return Ok(path);
+    }
+    Ok(manifest
+        .path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(path))
+}
+
 fn call_extension(
     manifest: &manifest::ExtensionManifest,
     request: &protocol::ExtensionRequest,
     timeout: Duration,
 ) -> Result<protocol::ExtensionResponse, String> {
-    let command = command_for_manifest(manifest).ok_or_else(|| "missing command".to_string())?;
+    let command = resolved_command(manifest)?;
+    let working_dir = manifest.path.parent().unwrap_or_else(|| Path::new("."));
     let mut child = Command::new(command)
         .args(&manifest.args)
-        .current_dir(manifest.path.parent().unwrap_or_else(|| Path::new(".")))
+        .current_dir(working_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

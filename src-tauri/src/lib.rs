@@ -76,13 +76,6 @@ struct ExtensionToggleRequest {
     enabled: bool,
 }
 
-#[derive(Debug, Deserialize)]
-struct ExtensionCreateRequest {
-    id: String,
-    name: Option<String>,
-    description: Option<String>,
-}
-
 #[tauri::command]
 fn extensions_info(
     chat: tauri::State<'_, agent::ChatRuntime>,
@@ -103,14 +96,10 @@ fn extensions_set_enabled(
 
 #[tauri::command]
 fn extensions_create_rust(
-    request: ExtensionCreateRequest,
+    request: extensions::scaffold::CreateRustExtensionRequest,
     chat: tauri::State<'_, agent::ChatRuntime>,
 ) -> Result<extensions::ExtensionsInfo, String> {
-    extensions::create_rust_extension(extensions::scaffold::CreateRustExtensionRequest {
-        id: request.id,
-        name: request.name,
-        description: request.description,
-    })?;
+    extensions::create_rust_extension(request)?;
     let workspace = chat.workspace()?;
     Ok(extensions::info(&workspace))
 }

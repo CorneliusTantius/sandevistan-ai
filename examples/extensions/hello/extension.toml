@@ -1,8 +1,0 @@
-id = "hello"
-name = "Hello Extension"
-description = "Example Sandevistan extension with hooks and a tool"
-enabled = false
-command = "node"
-args = ["index.mjs"]
-hooks = ["before_model_call", "before_tool_call"]
-timeout_ms = 1500

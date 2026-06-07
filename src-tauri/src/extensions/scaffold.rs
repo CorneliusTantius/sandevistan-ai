@@ -54,10 +54,12 @@ fn clean_id(value: &str) -> Result<String, String> {
 }
 
 fn manifest_template(id: &str, name: &str, description: &str) -> String {
+    let name = toml_string(name);
+    let description = toml_string(description);
     format!(
         r#"id = "{id}"
-name = "{name}"
-description = "{description}"
+name = {name}
+description = {description}
 enabled = false
 hooks = ["before_model_call", "before_tool_call"]
 timeout_ms = 1500
@@ -67,6 +69,10 @@ default = "target/release/{id}"
 windows = "target/release/{id}.exe"
 "#
     )
+}
+
+fn toml_string(value: &str) -> String {
+    format!("{:?}", value)
 }
 
 fn cargo_template(id: &str) -> String {

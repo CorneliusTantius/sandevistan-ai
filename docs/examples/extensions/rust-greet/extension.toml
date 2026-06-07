@@ -1,0 +1,11 @@
+id = "rust-greet"
+name = "Rust Greet"
+description = "Native Rust extension example"
+enabled = false
+hooks = ["before_model_call", "before_tool_call"]
+timeout_ms = 1500
+args = []
+
+[commands]
+default = "target/release/rust-greet"
+windows = "target/release/rust-greet.exe"

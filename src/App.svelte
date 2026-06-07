@@ -1525,7 +1525,7 @@
           {:else if modsTab === "extensions"}
             {#if !editingExtension}
               <p class="hint">Config: {extensionsInfo.config_path || "~/.sandevistan/extensions.toml"}</p>
-              <ItemList items={extensionItems} addTitle="+ add extension" addSubtitle="manifest folder" onAdd={addExtension} />
+              <ItemList items={extensionItems} addTitle="+ rust extension" addSubtitle="native binary scaffold" onAdd={addExtension} />
             {:else}
               <label>Extension id<input bind:value={extensionDraft.id} disabled={!creatingExtension && Boolean(extensionDraft.path)} placeholder="my-extension" /></label>
               <label>Name<input bind:value={extensionDraft.name} disabled={!creatingExtension} /></label>
