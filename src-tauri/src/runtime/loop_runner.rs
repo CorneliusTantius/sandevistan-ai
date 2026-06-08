@@ -100,6 +100,9 @@ impl AgentRuntime {
             config.read_only,
         )
         .specs();
+        if config.mods.mcp_enabled {
+            native_tools.extend(crate::mcp::tool_specs());
+        }
         native_tools.extend(crate::extensions::tool_specs(&config.workspace));
 
         let mut turn_index = 0usize;

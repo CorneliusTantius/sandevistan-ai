@@ -3,7 +3,7 @@
   import { EditorState, type Extension } from "@codemirror/state";
   import { EditorView, drawSelection, dropCursor, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, rectangularSelection } from "@codemirror/view";
   import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-  import { HighlightStyle, bracketMatching, indentOnInput, syntaxHighlighting } from "@codemirror/language";
+  import { HighlightStyle, StreamLanguage, bracketMatching, indentOnInput, syntaxHighlighting } from "@codemirror/language";
   import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
   import { MergeView } from "@codemirror/merge";
   import { tags as t } from "@lezer/highlight";
@@ -12,6 +12,10 @@
   import { css } from "@codemirror/lang-css";
   import { json } from "@codemirror/lang-json";
   import { markdown } from "@codemirror/lang-markdown";
+  import { rust } from "@codemirror/lang-rust";
+  import { yaml } from "@codemirror/lang-yaml";
+  import { sql } from "@codemirror/lang-sql";
+  import { toml } from "@codemirror/legacy-modes/mode/toml";
 
   export type OpenFile = {
     path: string;
@@ -157,8 +161,34 @@
     if (/\.(css|scss|sass|less)$/.test(lower)) return css();
     if (/\.(json|jsonc)$/.test(lower)) return json();
     if (/\.(md|markdown)$/.test(lower)) return markdown();
+    if (/\.(rs)$/.test(lower)) return rust();
+    if (/\.(ya?ml)$/.test(lower)) return yaml();
+    if (/\.(toml)$/.test(lower)) return StreamLanguage.define(toml);
+    if (/\.(sql)$/.test(lower)) return sql();
+    if (/\.(tf|tfvars|hcl)$/.test(lower)) return StreamLanguage.define(terraformLanguage);
     return [];
   }
+
+  const terraformLanguage = {
+    token(stream: { eatSpace: () => boolean; match: (pattern: string | RegExp) => boolean; eatWhile: (match: RegExp) => boolean; next: () => string | undefined; skipToEnd: () => void }) {
+      if (stream.eatSpace()) return null;
+      if (stream.match(/#.*/)) return "comment";
+      if (stream.match(/\/\/.*$/)) return "comment";
+      if (stream.match(/\/\*/)) {
+        while (!stream.match(/\*\//) && stream.next() != null) {}
+        return "comment";
+      }
+      if (stream.match(/"(?:[^"\\]|\\.)*"/)) return "string";
+      if (stream.match(/<<[-]?\w+/)) return "string";
+      if (stream.match(/\b(?:resource|data|module|variable|output|locals|provider|terraform|backend|provisioner|connection|dynamic|for_each|count|depends_on|lifecycle|true|false|null)\b/)) return "keyword";
+      if (stream.match(/\b\d+(?:\.\d+)?\b/)) return "number";
+      if (stream.match(/[{}()[\],.=:+\-*\/!<>|&?]/)) return "operator";
+      if (stream.match(/[A-Za-z_][\w-]*/)) return "variableName";
+      stream.next();
+      return null;
+    },
+    languageData: { commentTokens: { line: "#", block: { open: "/*", close: "*/" } } },
+  };
 
   async function ensureMergeView() {
     if (mergeView || mergeOpening) return;
