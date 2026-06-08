@@ -9,6 +9,7 @@
     | { kind: "heading"; text: string }
     | { kind: "list"; items: string[] }
     | { kind: "table"; headers: string[]; rows: string[][] }
+    | { kind: "hr" }
     | { kind: "text"; text: string };
 
   let toolLevel = 0;
@@ -83,6 +84,12 @@
         continue;
       }
 
+      if (/^\s*-{3,}\s*$/.test(line)) {
+        blocks.push({ kind: "hr" });
+        i++;
+        continue;
+      }
+
       if (isTableStart(lines, i)) {
         const headers = splitTableRow(lines[i]);
         const rows: string[][] = [];
@@ -93,7 +100,7 @@
       }
 
       const text: string[] = [];
-      while (i < lines.length && lines[i].trim() && !lines[i].startsWith("```") && !lines[i].startsWith("#") && !/^\s*[-*]\s+/.test(lines[i]) && !isTableStart(lines, i)) {
+      while (i < lines.length && lines[i].trim() && !lines[i].startsWith("```") && !lines[i].startsWith("#") && !/^\s*-{3,}\s*$/.test(lines[i]) && !/^\s*[-*]\s+/.test(lines[i]) && !isTableStart(lines, i)) {
         text.push(lines[i++]);
       }
       blocks.push({ kind: "text", text: text.join("\n") });
@@ -126,7 +133,27 @@
   function inlineMarkdown(value: string) {
     return escapeHtml(value)
       .replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>')
+      .replace(/==([^=\n]+)==/g, "<mark>$1</mark>")
       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  }
+
+  function highlightedCode(value: string, lang: string) {
+    const html = escapeHtml(value);
+    const normalized = lang.toLowerCase();
+    if (/^(js|jsx|ts|tsx|svelte|json)$/.test(normalized)) {
+      return html
+        .replace(/(&quot;.*?&quot;|'.*?'|`.*?`)/g, '<span class="tok-string">$1</span>')
+        .replace(/\b(const|let|var|function|return|if|else|for|while|class|type|interface|import|from|export|async|await|try|catch|throw|new|true|false|null|undefined)\b/g, '<span class="tok-keyword">$1</span>')
+        .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-number">$1</span>')
+        .replace(/(\/\/.*)$/gm, '<span class="tok-comment">$1</span>');
+    }
+    if (/^(sh|bash|zsh|shell)$/.test(normalized)) {
+      return html
+        .replace(/(#.*)$/gm, '<span class="tok-comment">$1</span>')
+        .replace(/\b(cd|ls|cat|grep|rg|npm|git|cargo|sudo|echo|export)\b/g, '<span class="tok-keyword">$1</span>')
+        .replace(/(--?[\w-]+)/g, '<span class="tok-number">$1</span>');
+    }
+    return html;
   }
 </script>
 
@@ -145,7 +172,7 @@
     <div class="markdown">
       {#each blocks as block}
         {#if block.kind === "code"}
-          <pre class="code"><code>{block.text}</code></pre>
+          <pre class="code"><code>{@html highlightedCode(block.text, block.lang)}</code></pre>
         {:else if block.kind === "heading"}
           <h3>{@html inlineMarkdown(block.text)}</h3>
         {:else if block.kind === "list"}
@@ -161,6 +188,8 @@
               </tbody>
             </table>
           </div>
+        {:else if block.kind === "hr"}
+          <hr />
         {:else}
           <p>{@html inlineMarkdown(block.text)}</p>
         {/if}
@@ -237,8 +266,15 @@
 
   p,
   h3,
-  ul {
+  ul,
+  hr {
     margin: 0;
+  }
+
+  hr {
+    width: 100%;
+    border: 0;
+    border-top: 1px solid var(--panel);
   }
 
   .table-wrap {
@@ -289,6 +325,30 @@
     background: var(--black);
     color: var(--muted);
     font: inherit;
+  }
+
+  :global(mark) {
+    padding: 0 3px;
+    background: color-mix(in srgb, var(--assistant) 24%, transparent);
+    color: var(--text);
+  }
+
+  :global(.tok-keyword) {
+    color: var(--assistant);
+    font-weight: 700;
+  }
+
+  :global(.tok-string) {
+    color: var(--alt);
+  }
+
+  :global(.tok-number) {
+    color: var(--muted);
+  }
+
+  :global(.tok-comment) {
+    color: color-mix(in srgb, var(--muted) 72%, transparent);
+    font-style: italic;
   }
 
   .streaming-text {
