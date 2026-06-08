@@ -595,10 +595,22 @@ fn rtk_path() -> Option<PathBuf> {
                 .into_iter()
                 .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
                 .chain(rtk_fallback_dirs())
-                .map(|path| path.join("rtk"))
+                .flat_map(|dir| {
+                    rtk_executable_names()
+                        .iter()
+                        .map(move |name| dir.join(name))
+                })
                 .find(|path| path.is_file())
         })
         .clone()
+}
+
+fn rtk_executable_names() -> &'static [&'static str] {
+    if cfg!(windows) {
+        &["rtk.exe", "rtk.cmd", "rtk.bat", "rtk"]
+    } else {
+        &["rtk"]
+    }
 }
 
 fn rtk_fallback_dirs() -> Vec<PathBuf> {
@@ -606,6 +618,11 @@ fn rtk_fallback_dirs() -> Vec<PathBuf> {
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(".local/bin"));
         dirs.push(home.join(".cargo/bin"));
+    }
+    if cfg!(windows) {
+        if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
+            dirs.push(PathBuf::from(local_app_data).join("Programs").join("rtk"));
+        }
     }
     dirs
 }
