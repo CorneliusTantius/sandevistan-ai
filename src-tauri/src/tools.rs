@@ -11,16 +11,16 @@ use std::{
 
 const CONFIG_DIR_NAME: &str = ".sandevistan";
 const MAX_LIST_ENTRIES: usize = 200;
-const MAX_READ_BYTES: u64 = 50_000;
+const MAX_READ_BYTES: u64 = 24_000;
 const MAX_WRITE_BYTES: usize = 200_000;
-const MAX_TOOL_OUTPUT_BYTES: usize = 64_000;
+const MAX_TOOL_OUTPUT_BYTES: usize = 16_000;
 const MAX_SEARCH_RESULTS: usize = 200;
-const MAX_DIFF_BYTES: usize = 200_000;
+const MAX_DIFF_BYTES: usize = 50_000;
 const TOOL_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
 const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
 const SHELL_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 const RTK_REWRITE_TIMEOUT: Duration = Duration::from_secs(15);
-const MAX_SHELL_OUTPUT_BYTES: usize = 120_000;
+const MAX_SHELL_OUTPUT_BYTES: usize = 24_000;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ToolCall {

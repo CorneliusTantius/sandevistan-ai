@@ -275,9 +275,10 @@
   $: featureGit = config.features?.git ?? true;
   $: featureFileWatcher = config.features?.file_watcher ?? true;
   $: contextLimit = config.context_chars || 80000;
-  $: contextUsed = messages.reduce((total, message) => total + message.content.length, 0) + prompt.length;
+  $: contextUsed = estimateActiveContext(messages, prompt, contextLimit);
+  $: transcriptUsed = messages.reduce((total, message) => total + message.content.length, 0) + prompt.length;
   $: contextPercent = Math.min(100, Math.round((contextUsed / Math.max(contextLimit, 1)) * 100));
-  $: inputTokens = Math.ceil((messages.filter((message) => message.role !== "assistant").reduce((total, message) => total + message.content.length, 0) + prompt.length) / 4);
+  $: inputTokens = Math.ceil(estimateInputContext(messages, prompt, contextLimit) / 4);
   $: outputTokens = Math.ceil(messages.filter((message) => message.role === "assistant").reduce((total, message) => total + message.content.length, 0) / 4);
   $: if (sideTab === "content" && !featureContentSearch) sideTab = "files";
   $: if (sideTab === "git" && !featureGit) sideTab = "files";
@@ -331,6 +332,36 @@
 
   async function ensureTerminalPane() {
     TerminalPaneComponent ??= (await import("./components/TerminalPane.svelte")).default;
+  }
+
+  function estimateMessageCost(message: Message, limit: number) {
+    const cap = message.role === "tool" ? Math.min(8000, Math.max(1000, Math.floor(limit / 4))) : Math.min(24000, Math.max(2000, Math.floor(limit / 2)));
+    return message.role.length + Math.min(message.content.length, cap) + 8;
+  }
+
+  function activeContextMessages(source: Message[], draftPrompt: string, limit: number) {
+    const draftMessages = draftPrompt ? [...source, { role: "user" as Role, content: draftPrompt }] : source;
+    const selected: Message[] = [];
+    let used = 0;
+    for (let index = draftMessages.length - 1; index >= 0; index -= 1) {
+      const message = draftMessages[index];
+      const mustKeep = draftMessages.length - index <= 8;
+      const cost = estimateMessageCost(message, limit);
+      if (!mustKeep && selected.length > 0 && used + cost > limit) break;
+      used += cost;
+      selected.push(message);
+    }
+    return selected.reverse();
+  }
+
+  function estimateActiveContext(source: Message[], draftPrompt: string, limit: number) {
+    return activeContextMessages(source, draftPrompt, limit).reduce((total, message) => total + estimateMessageCost(message, limit), 0);
+  }
+
+  function estimateInputContext(source: Message[], draftPrompt: string, limit: number) {
+    return activeContextMessages(source, draftPrompt, limit)
+      .filter((message) => message.role !== "assistant")
+      .reduce((total, message) => total + estimateMessageCost(message, limit), 0);
   }
 
   function formatContext(value: number) {
@@ -1671,7 +1702,7 @@
             <div class="side-title">stats</div>
             <div class="stat-row"><span>context</span><strong>{formatContext(contextUsed)} / {formatContext(contextLimit)}</strong></div>
             <div class="context-bar"><span style={`width:${contextPercent}%`}></span></div>
-            <small>{contextPercent}% used</small>
+            <small>{contextPercent}% used · transcript {formatContext(transcriptUsed)}</small>
             <div class="stat-row"><span>in / out tokens</span><strong>{formatContext(inputTokens)} | {formatContext(outputTokens)}</strong></div>
           </aside>
         </div>
