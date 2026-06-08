@@ -9,7 +9,7 @@
                                                                                   
 </pre>
 
-`AI Coding Harness` nowadays are whether its a TUI, or just VSCode fork with some 'built in' extra 1 or 2 extension bruh. ultraworker? more like ultraslow or ultraslop iguess?. Behold the ~3mb coding agent harness + IDE that looks shady like a virus but it actually works and get the job done. not some ultraworker, super agent or any of that BS, just raw speed and its done.
+`AI Coding Harness` nowadays are whether its a TUI, or just VSCode fork with some 'built in' extra 1 or 2 extension bruh. ultraworker? more like ultraslow or ultraslop iguess?. Behold the ~3mb coding agent harness + IDE that looks shady and suspicious like a virus but it actually works and get the job done. not some ultraworker, super agent or any of that BS, just raw speed, lightweight, thats it.
 
 Project name is referenced after cyberpunk 2077's sandevistan chrome that activate as you wanted it to be, and perform as you wanted it to be. But cyberpunk's sandy is slowing time, which theoritically not possible so instead, the workaround is to make it 'work really fast'.
 
