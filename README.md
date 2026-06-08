@@ -31,3 +31,28 @@
 - 🔷 TypeScript
 - ⚡ Vite
 - 🟢 Node.js
+
+## Installation scripts
+
+Use the matching helper script for your OS/distro:
+
+```bash
+# Arch Linux
+./install-arch.sh
+
+# macOS
+./install-macos.sh
+
+# Debian / Ubuntu
+./install-debian-ubuntu.sh
+
+# Fedora
+./install-fedora.sh
+```
+
+If needed, make scripts executable first:
+
+```bash
+chmod +x install-*.sh
+```
+
