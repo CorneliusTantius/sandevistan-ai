@@ -14,8 +14,10 @@
   }
 
   function status(content: string) {
-    if (/^status:\s*running\.\.\./m.test(content)) return "running";
-    if (/^status:\s*(failed|error)\b/m.test(content)) return "failed";
+    const statuses = [...content.matchAll(/^status:\s*([^\n]+)/gm)];
+    const last = statuses.at(-1)?.[1]?.trim().toLowerCase() ?? "";
+    if (last.startsWith("running")) return "running";
+    if (/^(failed|error)\b/.test(last)) return "failed";
     return "done";
   }
 

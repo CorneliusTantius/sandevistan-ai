@@ -443,22 +443,28 @@
     return content.split("\n", 1)[0] || "tool";
   }
 
+  function lastToolStatus(content: string) {
+    const statuses = [...content.matchAll(/^status:\s*([^\n]+)/gm)];
+    return statuses.at(-1)?.[1]?.trim().toLowerCase() ?? "";
+  }
+
   function isRunningTool(content: string) {
-    return /^status:\s*running\.\.\./m.test(content);
+    return lastToolStatus(content).startsWith("running");
   }
 
   function upsertToolMessage(content: string) {
     streamMessageOpen = false;
     const title = toolTitle(content);
     const next = [...messages];
-    const lastIndex = next.length - 1;
-    const last = next[lastIndex];
-    if (last?.role === "tool" && toolTitle(last.content) === title && isRunningTool(last.content)) {
-      next[lastIndex] = { role: "tool", content };
+    const matchIndex = next.findLastIndex(
+      (message) => message.role === "tool" && toolTitle(message.content) === title && isRunningTool(message.content),
+    );
+    if (matchIndex !== -1) {
+      next[matchIndex] = { role: "tool", content };
       messages = next;
       return;
     }
-    if (last?.role === "tool" && last.content === content) return;
+    if (next.at(-1)?.role === "tool" && next.at(-1)?.content === content) return;
     addMessage("tool", content);
   }
 

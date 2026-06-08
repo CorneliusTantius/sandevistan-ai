@@ -16,7 +16,8 @@
   $: blocks = streaming ? [] : parseMarkdown(renderedContent);
   $: toolTitle = content.split("\n", 1)[0] || "tool";
   $: toolBody = content.split("\n").slice(1).join("\n").trim();
-  $: toolFailed = /^status:\s*failed\b/m.test(content);
+  $: toolStatus = [...content.matchAll(/^status:\s*([^\n]+)/gm)].at(-1)?.[1]?.trim().toLowerCase() ?? "";
+  $: toolFailed = /^(failed|error)\b/.test(toolStatus);
 
   function cycleTool() {
     toolLevel = (toolLevel + 1) % 3;
