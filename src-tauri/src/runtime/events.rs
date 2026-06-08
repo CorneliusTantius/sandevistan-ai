@@ -23,6 +23,11 @@ pub enum AgentEvent {
     TurnEnd {
         turn: usize,
     },
+    TokenUsage {
+        input_tokens: usize,
+        output_tokens: usize,
+        total_tokens: usize,
+    },
     AgentEnd,
     Error {
         message: String,

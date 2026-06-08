@@ -2,7 +2,7 @@ use crate::{
     ai::ChatMessage,
     runtime::CancellationToken,
     runtime_wire::{
-        NativeMessage, NativeStreamEvent, NativeToolCall, NativeToolSpec, NativeTurnResult,
+        NativeMessage, NativeStreamEvent, NativeTokenUsage, NativeToolCall, NativeToolSpec, NativeTurnResult,
     },
     tools,
 };
@@ -404,6 +404,7 @@ where
         "model": runtime.model_id,
         "messages": chat_native_messages(messages),
         "stream": true,
+        "stream_options": { "include_usage": true },
     });
     if !tool_specs.is_empty() {
         body["tools"] = Value::Array(
@@ -631,6 +632,7 @@ struct ToolCallParts {
 struct ChatAccumulator {
     content: String,
     calls: HashMap<usize, ToolCallParts>,
+    usage: Option<NativeTokenUsage>,
 }
 
 #[derive(Default)]
@@ -639,6 +641,7 @@ struct ResponsesAccumulator {
     calls: Vec<NativeToolCall>,
     pending_calls: HashMap<String, ToolCallParts>,
     finalized_calls: HashSet<String>,
+    usage: Option<NativeTokenUsage>,
 }
 
 enum NativeParser {
@@ -670,6 +673,9 @@ impl ChatAccumulator {
     where
         F: FnMut(NativeStreamEvent),
     {
+        if let Some(usage) = parse_chat_usage(&value) {
+            self.usage = Some(usage);
+        }
         let Some(choices) = value.get("choices").and_then(Value::as_array) else {
             return Ok(());
         };
@@ -713,6 +719,7 @@ impl ChatAccumulator {
         NativeTurnResult {
             content: self.content,
             tool_calls,
+            token_usage: self.usage,
         }
     }
 }
@@ -737,7 +744,12 @@ impl ResponsesAccumulator {
             "response.function_call_arguments.delta" => self.record_response_args_delta(&value),
             "response.function_call_arguments.done" => self.record_response_args_done(&value),
             "response.output_item.done" => self.record_response_item(&value, true),
-            "response.completed" => self.record_completed_response(&value),
+            "response.completed" => {
+                self.record_completed_response(&value);
+                if let Some(usage) = parse_responses_usage(&value) {
+                    self.usage = Some(usage);
+                }
+            }
             "error" | "response.failed" => return Err(response_event_error(&value)),
             "response.incomplete" => return Err(response_event_error(&value)),
             _ => {}
@@ -863,8 +875,36 @@ impl ResponsesAccumulator {
         NativeTurnResult {
             content: self.content,
             tool_calls: self.calls,
+            token_usage: self.usage,
         }
     }
+}
+
+fn parse_chat_usage(value: &Value) -> Option<NativeTokenUsage> {
+    let usage = value.get("usage")?;
+    Some(NativeTokenUsage {
+        input_tokens: usage.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0) as usize,
+        output_tokens: usage.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0) as usize,
+        total_tokens: usage.get("total_tokens").and_then(Value::as_u64).unwrap_or(0) as usize,
+    })
+    .filter(|usage| usage.total_tokens > 0 || usage.input_tokens > 0 || usage.output_tokens > 0)
+}
+
+fn parse_responses_usage(value: &Value) -> Option<NativeTokenUsage> {
+    let usage = value.get("response").and_then(|response| response.get("usage"))?;
+    let input = usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let output = usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let total = usage
+        .get("total_tokens")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(input + output);
+    Some(NativeTokenUsage {
+        input_tokens: input,
+        output_tokens: output,
+        total_tokens: total,
+    })
+    .filter(|usage| usage.total_tokens > 0 || usage.input_tokens > 0 || usage.output_tokens > 0)
 }
 
 fn response_call_keys(value: &Value, item: Option<&Value>) -> Vec<String> {

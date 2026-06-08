@@ -41,8 +41,16 @@ pub enum NativeStreamEvent {
     TextDelta(String),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeTokenUsage {
+    pub input_tokens: usize,
+    pub output_tokens: usize,
+    pub total_tokens: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct NativeTurnResult {
     pub content: String,
     pub tool_calls: Vec<NativeToolCall>,
+    pub token_usage: Option<NativeTokenUsage>,
 }

@@ -7,7 +7,7 @@ use std::{
     collections::HashMap,
     env, fs,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter};
@@ -70,11 +70,15 @@ pub struct TaskInfo {
 
 #[derive(Debug, Clone, Serialize)]
 struct StreamEvent {
+    id: String,
     session_id: String,
     kind: String,
     role: Option<String>,
     text: Option<String>,
     content: Option<String>,
+    input_tokens: Option<usize>,
+    output_tokens: Option<usize>,
+    total_tokens: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -591,6 +595,7 @@ async fn run_native_agent_loop(
             budgets: crate::runtime::AgentBudgets::default(),
             cancellation_token,
             on_event,
+            artifact_session_id: Some(session_id.to_string()),
         })
         .await
         .map_err(|error| AgentLoopError {
@@ -629,6 +634,11 @@ fn emit_agent_event(
         crate::runtime::AgentEvent::ToolCallEnd { content, .. } => {
             emit_stream_tool(app, session_id, &content);
         }
+        crate::runtime::AgentEvent::TokenUsage {
+            input_tokens,
+            output_tokens,
+            total_tokens,
+        } => emit_stream_usage(app, session_id, input_tokens, output_tokens, total_tokens),
         crate::runtime::AgentEvent::Error { .. } => {}
         crate::runtime::AgentEvent::AgentStart
         | crate::runtime::AgentEvent::TurnStart { .. }
@@ -642,11 +652,15 @@ fn emit_stream_start(app: &AppHandle, session_id: &str) {
     emit_stream(
         app,
         StreamEvent {
+            id: stream_event_id(session_id, "start", ""),
             session_id: session_id.into(),
             kind: "start".into(),
             role: Some("assistant".into()),
             text: None,
             content: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
         },
     );
 }
@@ -658,11 +672,15 @@ fn emit_stream_delta(app: &AppHandle, session_id: &str, text: &str) {
     emit_stream(
         app,
         StreamEvent {
+            id: stream_event_id(session_id, "delta", text),
             session_id: session_id.into(),
             kind: "delta".into(),
             role: None,
             text: Some(text.into()),
             content: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
         },
     );
 }
@@ -671,11 +689,15 @@ fn emit_stream_tool(app: &AppHandle, session_id: &str, content: &str) {
     emit_stream(
         app,
         StreamEvent {
+            id: stream_event_id(session_id, "tool", content),
             session_id: session_id.into(),
             kind: "tool".into(),
             role: None,
             text: None,
             content: Some(content.into()),
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
         },
     );
 }
@@ -684,11 +706,15 @@ fn emit_stream_error(app: &AppHandle, session_id: &str, content: &str) {
     emit_stream(
         app,
         StreamEvent {
+            id: stream_event_id(session_id, "error", content),
             session_id: session_id.into(),
             kind: "error".into(),
             role: None,
             text: None,
             content: Some(content.into()),
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
         },
     );
 }
@@ -697,13 +723,47 @@ fn emit_stream_done(app: &AppHandle, session_id: &str) {
     emit_stream(
         app,
         StreamEvent {
+            id: stream_event_id(session_id, "done", ""),
             session_id: session_id.into(),
             kind: "done".into(),
             role: None,
             text: None,
             content: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
         },
     );
+}
+
+fn emit_stream_usage(
+    app: &AppHandle,
+    session_id: &str,
+    input_tokens: usize,
+    output_tokens: usize,
+    total_tokens: usize,
+) {
+    emit_stream(
+        app,
+        StreamEvent {
+            id: stream_event_id(session_id, "usage", &format!("{input_tokens}:{output_tokens}:{total_tokens}")),
+            session_id: session_id.into(),
+            kind: "usage".into(),
+            role: None,
+            text: None,
+            content: None,
+            input_tokens: Some(input_tokens),
+            output_tokens: Some(output_tokens),
+            total_tokens: Some(total_tokens),
+        },
+    );
+}
+
+static STREAM_EVENT_SEQ: AtomicU64 = AtomicU64::new(1);
+
+fn stream_event_id(session_id: &str, kind: &str, _payload: &str) -> String {
+    let seq = STREAM_EVENT_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{session_id}:{kind}:{seq}")
 }
 
 fn emit_stream(app: &AppHandle, event: StreamEvent) {
@@ -730,6 +790,13 @@ async fn finish_task(
         }
     }
 
+    tokio::time::timeout(
+        SUMMARY_TIMEOUT,
+        update_session_summary(workspace, session_id, &file.messages),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok);
     auto_compact_session_file(workspace, session_id, &mut file).ok();
 
     if let Some(meta) = index
@@ -752,9 +819,9 @@ fn auto_compact_session_file(
     session_id: &str,
     file: &mut SessionFile,
 ) -> Result<(), String> {
-    const KEEP_RECENT: usize = 8;
-    const AUTO_COMPACT_RATIO_NUM: usize = 3;
-    const AUTO_COMPACT_RATIO_DEN: usize = 2;
+    const KEEP_RECENT: usize = 4;
+    const AUTO_COMPACT_RATIO_NUM: usize = 4;
+    const AUTO_COMPACT_RATIO_DEN: usize = 5;
 
     let prompt_config = ai::prompt_config();
     let transcript_chars = file
@@ -889,9 +956,9 @@ async fn update_session_summary(
     session_id: &str,
     messages: &[ChatMessage],
 ) -> Result<SessionSummary, String> {
-    const MIN_MESSAGES: usize = 18;
-    const KEEP_RECENT: usize = 8;
-    const MIN_NEW_MESSAGES: usize = 8;
+    const MIN_MESSAGES: usize = 8;
+    const KEEP_RECENT: usize = 4;
+    const MIN_NEW_MESSAGES: usize = 1;
     const MAX_SOURCE_CHARS: usize = 18_000;
 
     let current = load_session_summary(workspace, session_id)?;

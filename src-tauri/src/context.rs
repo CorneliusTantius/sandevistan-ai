@@ -5,7 +5,7 @@ const DEFAULT_TOOL_CHARS: usize = 8_000;
 const DEFAULT_MESSAGE_CHARS: usize = 24_000;
 const MIN_CONTEXT_CHARS: usize = 4_000;
 const MAX_CONTEXT_CHARS: usize = 1_000_000;
-const MIN_RECENT_MESSAGES: usize = 8;
+const MIN_RECENT_MESSAGES: usize = 4;
 
 #[derive(Debug, Clone)]
 pub struct PromptConfig {

@@ -6,8 +6,10 @@ use crate::{
     tools,
 };
 use std::{
-    path::PathBuf,
+    fs,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use super::{
@@ -35,6 +37,7 @@ pub struct AgentRuntimeConfig {
     pub budgets: AgentBudgets,
     pub cancellation_token: super::cancel::CancellationToken,
     pub on_event: AgentEventSink,
+    pub artifact_session_id: Option<String>,
 }
 
 pub struct AgentRuntime;
@@ -59,7 +62,7 @@ impl AgentRuntimeError {
     }
 }
 
-const STORED_TOOL_CHARS: usize = 4_000;
+const STORED_TOOL_EXCERPT_CHARS: usize = 1_200;
 
 struct ToolRunRecord {
     index: usize,
@@ -145,6 +148,13 @@ impl AgentRuntime {
             )
             .await
             .map_err(|error| runtime_error(&config.workspace, error, &config.messages))?;
+            if let Some(usage) = &turn.token_usage {
+                (config.on_event)(AgentEvent::TokenUsage {
+                    input_tokens: usage.input_tokens,
+                    output_tokens: usage.output_tokens,
+                    total_tokens: usage.total_tokens,
+                });
+            }
 
             let content = turn.content.trim().to_string();
             let has_streamed = streamed.lock().map(|value| *value).unwrap_or(false);
@@ -249,20 +259,27 @@ impl AgentRuntime {
                     tool: record.call.name.clone(),
                     content: record.content.clone(),
                 });
+                let compact_content = compact_tool_output(
+                    &config.workspace,
+                    config.artifact_session_id.as_deref(),
+                    turn_number,
+                    record.index,
+                    &record.call.name,
+                    &record.content,
+                );
                 (config.on_event)(AgentEvent::ToolCallEnd {
                     id: record.call.id.clone(),
                     name: record.call.name.clone(),
-                    content: record.content.clone(),
+                    content: compact_content.clone(),
                 });
-                let stored_content = truncate_chars(&record.content, STORED_TOOL_CHARS);
                 config.messages.push(ChatMessage {
                     role: "tool".into(),
-                    content: stored_content,
+                    content: compact_content.clone(),
                 });
                 agent_messages.push(AgentMessage::tool_result(
                     record.call.id,
                     record.call.openai_name,
-                    record.content,
+                    compact_content,
                 ));
             }
 
@@ -270,6 +287,99 @@ impl AgentRuntime {
             turn_index += 1;
         }
     }
+}
+
+fn compact_tool_output(
+    workspace: &Path,
+    session_id: Option<&str>,
+    turn: usize,
+    index: usize,
+    tool_name: &str,
+    content: &str,
+) -> String {
+    let chars = content.chars().count();
+    let bytes = content.len();
+    let artifact = session_id.and_then(|session_id| {
+        save_tool_artifact(workspace, session_id, turn, index, tool_name, content).ok()
+    });
+    let excerpt = relevant_excerpt(content, STORED_TOOL_EXCERPT_CHARS);
+    let mut out = format!("{tool_name}\nartifact: {}\nsize: {chars} chars, {bytes} bytes", artifact.unwrap_or_else(|| "inline-only".into()));
+    if !excerpt.trim().is_empty() {
+        out.push_str("\nexcerpt:\n");
+        out.push_str(excerpt.trim());
+    }
+    if chars > STORED_TOOL_EXCERPT_CHARS {
+        out.push_str(&format!("\n... output compacted; full raw output saved in artifact when available"));
+    }
+    out
+}
+
+fn save_tool_artifact(
+    workspace: &Path,
+    session_id: &str,
+    turn: usize,
+    index: usize,
+    tool_name: &str,
+    content: &str,
+) -> Result<String, String> {
+    let dir = std::env::current_dir()
+        .map_err(|error| format!("artifact cwd failed: {error}"))?
+        .join(".sandevistan")
+        .join("artifacts")
+        .join(hash_text(&workspace.display().to_string()))
+        .join(session_id);
+    fs::create_dir_all(&dir).map_err(|error| format!("artifact dir failed: {error}"))?;
+    let file_name = format!(
+        "{}-turn-{turn}-{index}-{}.txt",
+        now_ms(),
+        sanitize_file_part(tool_name)
+    );
+    let path = dir.join(file_name);
+    fs::write(&path, content).map_err(|error| format!("artifact write failed: {error}"))?;
+    Ok(format!("artifact://{session_id}/turn-{turn}/{index}/{}", sanitize_file_part(tool_name)))
+}
+
+fn relevant_excerpt(content: &str, max_chars: usize) -> String {
+    let lines = content.lines().collect::<Vec<_>>();
+    let keywords = ["error", "failed", "panic", "warning", "diff", "match", "edited", "created", "deleted", "status:"];
+    let mut picked = Vec::new();
+    for line in &lines {
+        let lower = line.to_lowercase();
+        if keywords.iter().any(|key| lower.contains(key)) {
+            picked.push((*line).to_string());
+        }
+        if picked.join("\n").chars().count() >= max_chars / 2 {
+            break;
+        }
+    }
+    if picked.is_empty() {
+        picked = lines.iter().take(24).map(|line| (*line).to_string()).collect();
+    }
+    truncate_chars(&picked.join("\n"), max_chars)
+}
+
+fn sanitize_file_part(value: &str) -> String {
+    let out = value
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '-' })
+        .collect::<String>();
+    out.trim_matches('-').chars().take(48).collect::<String>()
+}
+
+fn hash_text(value: &str) -> String {
+    let mut hash = 1469598103934665603u64;
+    for byte in value.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(1099511628211);
+    }
+    format!("{hash:016x}")
+}
+
+fn now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
 }
 
 fn truncate_chars(value: &str, max_chars: usize) -> String {

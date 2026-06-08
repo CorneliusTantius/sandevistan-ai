@@ -27,7 +27,7 @@
   type WorkspaceOption = { path: string; name: string; deletable: boolean };
   type SessionOption = { id: string; title: string; preview: string; message_count: number; updated_at: number; running: boolean };
   type SessionInfo = { workspace: string; active_session_id: string; messages: Message[]; sessions: SessionOption[]; workspaces: WorkspaceOption[] };
-  type ChatStreamEvent = { session_id: string; kind: "start" | "delta" | "tool" | "done" | "error"; role?: Role; text?: string; content?: string };
+  type ChatStreamEvent = { id?: string; session_id: string; kind: "start" | "delta" | "tool" | "done" | "error" | "usage"; role?: Role; text?: string; content?: string; input_tokens?: number; output_tokens?: number; total_tokens?: number };
   type FileChangedEvent = { workspace: string; paths: string[] };
   type ProviderOption = { name: string; kind: string; api_base: string; api_key_header: string; has_api_key: boolean };
   type ModelOption = { name: string; provider: string; id: string; context_chars: number };
@@ -125,6 +125,10 @@
   let fileChangeTimer = 0;
   let streamMessageOpen = false;
   let liveSessions: Record<string, { messages: Message[]; streamBuffer: string; streamMessageOpen: boolean }> = {};
+  let seenStreamEvents = new Set<string>();
+  let providerInputTokens = 0;
+  let providerOutputTokens = 0;
+  let providerTotalTokens = 0;
   let files: FileEntry[] = [];
   let fileSearchResults: FileEntry[] = [];
   let fileSearching = false;
@@ -295,11 +299,12 @@
   $: featureGit = config.features?.git ?? true;
   $: featureFileWatcher = config.features?.file_watcher ?? true;
   $: contextLimit = config.context_chars || 80000;
-  $: contextUsed = estimateActiveContext(messages, prompt, contextLimit);
+  $: estimatedContextTokens = estimateActiveContext(messages, prompt, contextLimit);
+  $: contextUsed = providerTotalTokens || estimatedContextTokens;
   $: transcriptUsed = messages.reduce((total, message) => total + message.content.length, 0) + prompt.length;
   $: contextPercent = Math.min(100, Math.round((contextUsed / Math.max(contextLimit, 1)) * 100));
-  $: inputTokens = Math.ceil(estimateInputContext(messages, prompt, contextLimit) / 4);
-  $: outputTokens = Math.ceil(messages.filter((message) => message.role === "assistant").reduce((total, message) => total + message.content.length, 0) / 4);
+  $: inputTokens = providerInputTokens || estimateInputContext(messages, prompt, contextLimit);
+  $: outputTokens = providerOutputTokens || estimateTokenCount(messages.filter((message) => message.role === "assistant").map((message) => message.content).join("\n"));
   $: if (sideTab === "content" && !featureContentSearch) sideTab = "files";
   $: if (sideTab === "git" && !featureGit) sideTab = "files";
   $: sessionItems = visibleSessions.map((session): Item => ({
@@ -354,9 +359,14 @@
     TerminalPaneComponent ??= (await import("./components/TerminalPane.svelte")).default;
   }
 
+  function estimateTokenCount(text: string) {
+    const words = text.trim().match(/[\p{L}\p{N}_]+|[^\s]/gu)?.length ?? 0;
+    return Math.max(Math.ceil(text.length / 4), words);
+  }
+
   function estimateMessageCost(message: Message, limit: number) {
-    const cap = message.role === "tool" ? Math.min(8000, Math.max(1000, Math.floor(limit / 4))) : Math.min(24000, Math.max(2000, Math.floor(limit / 2)));
-    return message.role.length + Math.min(message.content.length, cap) + 8;
+    const cap = message.role === "tool" ? Math.min(1200, Math.max(600, Math.floor(limit / 12))) : Math.min(24000, Math.max(2000, Math.floor(limit / 2)));
+    return estimateTokenCount(message.role) + estimateTokenCount(message.content.slice(0, cap)) + 4;
   }
 
   function activeContextMessages(source: Message[], draftPrompt: string, limit: number) {
@@ -365,7 +375,7 @@
     let used = 0;
     for (let index = draftMessages.length - 1; index >= 0; index -= 1) {
       const message = draftMessages[index];
-      const mustKeep = draftMessages.length - index <= 8;
+      const mustKeep = draftMessages.length - index <= 4;
       const cost = estimateMessageCost(message, limit);
       if (!mustKeep && selected.length > 0 && used + cost > limit) break;
       used += cost;
@@ -448,6 +458,7 @@
       messages = next;
       return;
     }
+    if (last?.role === "tool" && last.content === content) return;
     addMessage("tool", content);
   }
 
@@ -474,7 +485,25 @@
     return true;
   }
 
+  function streamEventKey(event: ChatStreamEvent) {
+    return event.id || `${event.session_id}:${event.kind}:${event.text ?? ""}:${event.content ?? ""}:${event.total_tokens ?? ""}`;
+  }
+
+  function rememberStreamEvent(event: ChatStreamEvent) {
+    const key = streamEventKey(event);
+    if (seenStreamEvents.has(key)) return false;
+    seenStreamEvents.add(key);
+    if (seenStreamEvents.size > 2000) seenStreamEvents = new Set([...seenStreamEvents].slice(-1000));
+    return true;
+  }
+
   function applyStreamEvent(event: ChatStreamEvent, visible: boolean) {
+    if (event.kind === "usage") {
+      providerInputTokens = event.input_tokens ?? providerInputTokens;
+      providerOutputTokens = event.output_tokens ?? providerOutputTokens;
+      providerTotalTokens = event.total_tokens ?? providerTotalTokens;
+      return;
+    }
     if (event.kind === "start") {
       streamBuffer = "";
       ensureStreamMessage();
@@ -499,6 +528,7 @@
   }
 
   function handleStream(event: ChatStreamEvent) {
+    if (!rememberStreamEvent(event)) return;
     const visible = event.session_id === activeSessionId;
     if (visible) {
       applyStreamEvent(event, true);
