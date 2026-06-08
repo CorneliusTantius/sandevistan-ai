@@ -595,7 +595,6 @@ async fn run_native_agent_loop(
             budgets: crate::runtime::AgentBudgets::default(),
             cancellation_token,
             on_event,
-            artifact_session_id: Some(session_id.to_string()),
         })
         .await
         .map_err(|error| AgentLoopError {

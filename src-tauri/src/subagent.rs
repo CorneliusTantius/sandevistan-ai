@@ -192,7 +192,6 @@ async fn run_one_inner(
             },
             cancellation_token: crate::runtime::CancellationToken::new(),
             on_event: std::sync::Arc::new(|_event| {}),
-            artifact_session_id: None,
         })
         .await
         .map_err(|error| error.message)?;
