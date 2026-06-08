@@ -30,6 +30,10 @@ ignore = "0.4"
 notify = "6"
 tauri-plugin-dialog = "^2"
 
+[profile.dev]
+debug = 0
+incremental = true
+
 [profile.release]
 strip = true
 lto = true

@@ -37,6 +37,8 @@
   type ExtensionToolInfo = { name: string; description: string };
   type ExtensionInfo = { id: string; name: string; enabled: boolean; removable: boolean; description: string; path?: string; hooks: string[]; tools: ExtensionToolInfo[] };
   type ExtensionsInfo = { config_path: string; extensions: ExtensionInfo[] };
+  type McpServer = { name: string; command: string; args: string[]; timeout_ms: number; env: Record<string, string> };
+  type McpServerDraft = { name: string; original_name: string; command: string; args: string; timeout_ms: number; env: string };
   type AiMods = {
     main_model: string;
     main_agent: string;
@@ -166,6 +168,8 @@
   let addingAgent = false;
   let addingSubagent = false;
   let editingExtension = false;
+  let editingMcp = false;
+  let mcpDraft: McpServerDraft = { name: "", original_name: "", command: "", args: "", timeout_ms: 8000, env: "" };
   let agentDraft = { name: "", original_name: "", description: "", persona: "", thinking_level: "auto" as ThinkingLevel, prompt_injection: "" };
   let subagentDraft = { name: "", original_name: "", description: "", system: "", model: "", max_result_chars: 4000 };
   let extensionDraft: ExtensionInfo = { id: "", name: "", enabled: false, removable: true, description: "", hooks: [], tools: [] };
@@ -215,6 +219,19 @@
       { label: "del", danger: true, onClick: () => void deleteSubagent(subagent.name) },
     ],
   }));
+  $: mcpServers = parseMcpConfig(modsDraft.mcp_config);
+  $: mcpItems = mcpServers.map((server): Item => ({
+    key: server.name,
+    title: `${server.name}${modsDraft.mcp_enabled ? "" : " (off)"}`,
+    subtitle: `${server.command} ${server.args.join(" ")}`.trim() || "MCP server",
+    active: false,
+    onSelect: () => editMcpServer(server),
+    actions: [
+      { label: "edit", onClick: () => editMcpServer(server) },
+      { label: "del", danger: true, onClick: () => deleteMcpServer(server.name) },
+    ],
+  }));
+
   $: extensionItems = extensionsInfo.extensions.map((extension): Item => ({
     key: extension.id,
     title: `${extension.name}${extension.enabled ? "" : " (off)"}`,
@@ -702,6 +719,7 @@
     addingAgent = false;
     addingSubagent = false;
     editingExtension = false;
+    editingMcp = false;
     showMods = true;
     void loadExtensionsInfo();
   }
@@ -749,6 +767,116 @@
     let index = taken.size + 1;
     while (taken.has(`profile-${index}`)) index += 1;
     return `profile-${index}`;
+  }
+
+  function parseMcpConfig(configText: string): McpServer[] {
+    const servers: McpServer[] = [];
+    let current: McpServer | null = null;
+    for (const rawLine of (configText || "").split("\n")) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      if (line === "[[servers]]") {
+        current = { name: "", command: "", args: [], timeout_ms: 8000, env: {} };
+        servers.push(current);
+        continue;
+      }
+      if (!current) continue;
+      const match = line.match(/^(\w+)\s*=\s*(.*)$/);
+      if (!match) continue;
+      const [, key, rawValue] = match;
+      if (key === "name") current.name = unquoteToml(rawValue);
+      else if (key === "command") current.command = unquoteToml(rawValue);
+      else if (key === "timeout_ms") current.timeout_ms = Math.max(1, Number(rawValue) || 8000);
+      else if (key === "args") current.args = parseTomlStringArray(rawValue);
+      else if (key === "env") current.env = parseTomlInlineTable(rawValue);
+    }
+    return servers.filter((server) => server.name.trim());
+  }
+
+  function unquoteToml(value: string) {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+      try { return JSON.parse(trimmed); } catch { return trimmed.slice(1, -1); }
+    }
+    return trimmed;
+  }
+
+  function parseTomlStringArray(value: string) {
+    try {
+      const parsed = JSON.parse(value.trim());
+      return Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function parseTomlInlineTable(value: string) {
+    const env: Record<string, string> = {};
+    const body = value.trim().replace(/^\{/, "").replace(/\}$/, "");
+    for (const part of body.split(",")) {
+      const [key, ...rest] = part.split("=");
+      if (!key || !rest.length) continue;
+      env[key.trim()] = unquoteToml(rest.join("=").trim());
+    }
+    return env;
+  }
+
+  function tomlString(value: string) {
+    return JSON.stringify(value || "");
+  }
+
+  function mcpConfigFromServers(servers: McpServer[]) {
+    return servers.map((server) => {
+      const lines = ["[[servers]]", `name = ${tomlString(server.name)}`, `command = ${tomlString(server.command)}`];
+      if (server.args.length) lines.push(`args = [${server.args.map(tomlString).join(", ")}]`);
+      lines.push(`timeout_ms = ${Math.max(1, Number(server.timeout_ms) || 8000)}`);
+      const envEntries = Object.entries(server.env).filter(([key]) => key.trim());
+      if (envEntries.length) lines.push(`env = { ${envEntries.map(([key, value]) => `${key.trim()} = ${tomlString(value)}`).join(", ")} }`);
+      return lines.join("\n");
+    }).join("\n\n");
+  }
+
+  function envText(env: Record<string, string>) {
+    return Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n");
+  }
+
+  function parseEnvText(value: string) {
+    const env: Record<string, string> = {};
+    for (const line of value.split("\n")) {
+      const [key, ...rest] = line.split("=");
+      if (!key.trim() || !rest.length) continue;
+      env[key.trim()] = rest.join("=").trim();
+    }
+    return env;
+  }
+
+  function addMcpServer() {
+    editingMcp = true;
+    mcpDraft = { name: "", original_name: "", command: "", args: "", timeout_ms: 8000, env: "" };
+  }
+
+  function editMcpServer(server: McpServer) {
+    editingMcp = true;
+    mcpDraft = { name: server.name, original_name: server.name, command: server.command, args: server.args.join("\n"), timeout_ms: server.timeout_ms, env: envText(server.env) };
+  }
+
+  function saveMcpServer() {
+    const server: McpServer = {
+      name: mcpDraft.name.trim(),
+      command: mcpDraft.command.trim(),
+      args: mcpDraft.args.split("\n").map((arg) => arg.trim()).filter(Boolean),
+      timeout_ms: Math.max(1, Number(mcpDraft.timeout_ms) || 8000),
+      env: parseEnvText(mcpDraft.env),
+    };
+    if (!server.name || !server.command) return;
+    const servers = mcpServers.filter((item) => item.name !== (mcpDraft.original_name || server.name));
+    modsDraft = { ...modsDraft, mcp_config: mcpConfigFromServers([...servers, server]) };
+    editingMcp = false;
+  }
+
+  function deleteMcpServer(name: string) {
+    modsDraft = { ...modsDraft, mcp_config: mcpConfigFromServers(mcpServers.filter((server) => server.name !== name)) };
+    editingMcp = false;
   }
 
   function editAgent(agent: AgentOption) {
@@ -1706,12 +1834,19 @@
               <div class="side-title">MCP</div>
               <Checkbox checked={modsDraft.mcp_enabled} label={`MCP tools: ${modsDraft.mcp_enabled ? "on" : "off"}`} onChange={(checked) => (modsDraft = { ...modsDraft, mcp_enabled: checked })} />
             </div>
-            <label>MCP config<textarea bind:value={modsDraft.mcp_config} rows="12" placeholder={`[[servers]]
-name = "memory"
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-memory"]
-timeout_ms = 8000`}></textarea></label>
-            <p class="hint">Built-in lightweight stdio MCP client. Tools exposed when enabled: mcp.list, mcp.call. Changes affect next run.</p>
+            {#if !editingMcp}
+              <ItemList items={mcpItems} addTitle="+ add MCP server" addSubtitle="stdio server" onAdd={addMcpServer} />
+              <p class="hint">Built-in lightweight stdio MCP client. Tools exposed when enabled: mcp.list, mcp.call. Save mods to apply.</p>
+            {:else}
+              <label>Name<input bind:value={mcpDraft.name} placeholder="github" /></label>
+              <label>Command<input bind:value={mcpDraft.command} placeholder="npx" /></label>
+              <label>Args <small>one per line</small><textarea bind:value={mcpDraft.args} rows="5" placeholder={`-y
+@modelcontextprotocol/server-memory`}></textarea></label>
+              <label>Timeout ms<input bind:value={mcpDraft.timeout_ms} type="number" min="1000" max="60000" step="1000" /></label>
+              <label>Env <small>KEY=value, one per line</small><textarea bind:value={mcpDraft.env} rows="5" placeholder="GITHUB_PERSONAL_ACCESS_TOKEN=...
+SUPABASE_ACCESS_TOKEN=..."></textarea></label>
+              <div class="actions right"><button class="ghost" type="button" on:click={() => (editingMcp = false)}>back</button><button type="button" disabled={!mcpDraft.name.trim() || !mcpDraft.command.trim()} on:click={saveMcpServer}>save server</button><button class="ghost danger" type="button" disabled={!mcpDraft.original_name} on:click={() => deleteMcpServer(mcpDraft.original_name)}>delete</button></div>
+            {/if}
           {:else if modsTab === "extensions"}
             {#if !editingExtension}
               <p class="hint">Config: {extensionsInfo.config_path || "~/.sandevistan/extensions.toml"}</p>
