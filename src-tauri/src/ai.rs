@@ -16,11 +16,24 @@ const DEFAULT_PROMPT_INJECTION: &str = "be very concise and efficient, drop gram
 #[derive(Debug, Deserialize)]
 pub struct AiConfigUpdate {
     provider: String,
-    api_base: String,
     model: String,
     original_model: Option<String>,
-    api_key: Option<String>,
     context_chars: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProviderUpdate {
+    name: String,
+    original_name: Option<String>,
+    kind: String,
+    api_base: String,
+    api_key_header: Option<String>,
+    api_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteProviderRequest {
+    provider: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,7 +98,10 @@ pub struct AiConfig {
 #[derive(Debug, Serialize)]
 pub struct ProviderOption {
     name: String,
+    kind: String,
     api_base: String,
+    api_key_header: String,
+    has_api_key: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -305,6 +321,7 @@ pub fn config() -> AiConfig {
     let runtime = runtime_config();
     let models = read_toml::<ModelsConfig>(runtime.config_dir.join("models.toml"));
     let agents = read_toml::<AgentsConfig>(runtime.config_dir.join("agents.toml"));
+    let auth = read_toml::<AuthConfig>(runtime.config_dir.join("auth.toml"));
     AiConfig {
         config_dir: runtime.config_dir.display().to_string(),
         provider: runtime.provider,
@@ -313,7 +330,7 @@ pub fn config() -> AiConfig {
         model_id: runtime.model_id,
         context_chars: runtime.context_chars,
         has_api_key: runtime.api_key.is_some(),
-        providers: provider_options(&models),
+        providers: provider_options(&models, &auth),
         models: model_options(&models),
         features: app_features(),
         mods: runtime.mods,
@@ -520,7 +537,6 @@ pub fn delete_model(request: DeleteModelRequest) -> Result<AiConfig, String> {
 
 pub fn save_config(update: AiConfigUpdate) -> Result<AiConfig, String> {
     let provider = clean_required(update.provider, "provider")?;
-    let api_base = clean_required(update.api_base, "api base")?;
     let model = clean_required(update.model, "model")?;
     let config_dir = config_dir();
     ensure_config_files(&config_dir);
@@ -537,14 +553,9 @@ pub fn save_config(update: AiConfigUpdate) -> Result<AiConfig, String> {
     app.profiles = Some(profiles);
 
     let mut models = read_toml::<ModelsConfig>(config_dir.join("models.toml"));
-    models.providers.insert(
-        provider.clone(),
-        ProviderConfig {
-            kind: Some("openai-compatible".into()),
-            base_url: Some(api_base),
-            api_key_header: None,
-        },
-    );
+    if !models.providers.contains_key(&provider) {
+        return Err(format!("provider not found: {provider}"));
+    }
     let original_model = update.original_model.and_then(clean_optional);
     let previous = original_model
         .as_ref()
@@ -565,21 +576,80 @@ pub fn save_config(update: AiConfigUpdate) -> Result<AiConfig, String> {
         },
     );
 
-    let mut auth = read_toml::<AuthConfig>(config_dir.join("auth.toml"));
-    if let Some(api_key) = update.api_key.and_then(clean_optional) {
-        auth.providers.insert(
-            provider,
-            ProviderAuth {
-                api_key: Some(api_key),
-            },
-        );
+    write_toml(config_dir.join("config.toml"), &app)?;
+    write_toml(config_dir.join("models.toml"), &models)?;
+
+    Ok(config())
+}
+
+pub fn save_provider(update: ProviderUpdate) -> Result<AiConfig, String> {
+    let name = clean_required(update.name, "provider")?;
+    let api_base = clean_required(update.api_base, "api base")?;
+    let kind = clean_provider_kind(&update.kind)?;
+    let api_key_header = update
+        .api_key_header
+        .and_then(clean_optional)
+        .map(|value| value.to_ascii_lowercase());
+    let original = update.original_name.and_then(clean_optional);
+    let config_dir = config_dir();
+    ensure_config_files(&config_dir);
+
+    let mut models = read_toml::<ModelsConfig>(config_dir.join("models.toml"));
+    if let Some(original) = original.filter(|original| original != &name) {
+        if let Some(previous) = models.providers.remove(&original) {
+            models.providers.insert(name.clone(), previous);
+        }
+        for model in models.models.values_mut() {
+            if model.provider.as_deref() == Some(original.as_str()) {
+                model.provider = Some(name.clone());
+            }
+        }
+        let mut auth = read_toml::<AuthConfig>(config_dir.join("auth.toml"));
+        if let Some(previous_auth) = auth.providers.remove(&original) {
+            auth.providers.insert(name.clone(), previous_auth);
+            write_toml(config_dir.join("auth.toml"), &auth)?;
+            set_owner_only_permissions(&config_dir.join("auth.toml"));
+        }
     }
 
-    write_toml(config_dir.join("config.toml"), &app)?;
+    models.providers.insert(
+        name.clone(),
+        ProviderConfig {
+            kind: Some(kind),
+            base_url: Some(api_base),
+            api_key_header,
+        },
+    );
+
+    if let Some(api_key) = update.api_key.and_then(clean_optional) {
+        let mut auth = read_toml::<AuthConfig>(config_dir.join("auth.toml"));
+        auth.providers.insert(name, ProviderAuth { api_key: Some(api_key) });
+        write_toml(config_dir.join("auth.toml"), &auth)?;
+        set_owner_only_permissions(&config_dir.join("auth.toml"));
+    }
+
+    write_toml(config_dir.join("models.toml"), &models)?;
+    Ok(config())
+}
+
+pub fn delete_provider(request: DeleteProviderRequest) -> Result<AiConfig, String> {
+    let provider = clean_required(request.provider, "provider")?;
+    let config_dir = config_dir();
+    ensure_config_files(&config_dir);
+    let mut models = read_toml::<ModelsConfig>(config_dir.join("models.toml"));
+    if models
+        .models
+        .values()
+        .any(|model| model.provider.as_deref() == Some(provider.as_str()))
+    {
+        return Err("provider is used by models".into());
+    }
+    models.providers.remove(&provider);
+    let mut auth = read_toml::<AuthConfig>(config_dir.join("auth.toml"));
+    auth.providers.remove(&provider);
     write_toml(config_dir.join("models.toml"), &models)?;
     write_toml(config_dir.join("auth.toml"), &auth)?;
     set_owner_only_permissions(&config_dir.join("auth.toml"));
-
     Ok(config())
 }
 
@@ -801,13 +871,26 @@ fn runtime_config_for_model(model_override: Option<String>) -> RuntimeConfig {
     }
 }
 
-fn provider_options(models: &ModelsConfig) -> Vec<ProviderOption> {
+fn provider_options(models: &ModelsConfig, auth: &AuthConfig) -> Vec<ProviderOption> {
     let mut providers = models
         .providers
         .iter()
         .map(|(name, provider)| ProviderOption {
             name: name.clone(),
+            kind: provider
+                .kind
+                .clone()
+                .unwrap_or_else(|| "openai-compatible".into()),
             api_base: provider.base_url.clone().unwrap_or_default(),
+            api_key_header: provider
+                .api_key_header
+                .clone()
+                .unwrap_or_else(|| "authorization".into()),
+            has_api_key: auth
+                .providers
+                .get(name)
+                .and_then(|provider| provider.api_key.as_ref())
+                .is_some_and(|key| !key.trim().is_empty()),
         })
         .collect::<Vec<_>>();
     providers.sort_by(|a, b| a.name.cmp(&b.name));
@@ -953,6 +1036,13 @@ fn clean_required(value: String, label: &str) -> Result<String, String> {
 fn clean_optional(value: String) -> Option<String> {
     let value = value.trim().to_string();
     (!value.is_empty()).then_some(value)
+}
+
+fn clean_provider_kind(value: &str) -> Result<String, String> {
+    match value.trim() {
+        "openai-compatible" | "openai-responses" => Ok(value.trim().to_string()),
+        _ => Err("provider kind must be openai-compatible or openai-responses".into()),
+    }
 }
 
 fn clean_context_chars(value: usize) -> usize {

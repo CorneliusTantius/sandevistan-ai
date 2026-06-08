@@ -28,6 +28,16 @@ fn ai_save_config(update: ai::AiConfigUpdate) -> Result<ai::AiConfig, String> {
 }
 
 #[tauri::command]
+fn ai_save_provider(update: ai::ProviderUpdate) -> Result<ai::AiConfig, String> {
+    ai::save_provider(update)
+}
+
+#[tauri::command]
+fn ai_delete_provider(request: ai::DeleteProviderRequest) -> Result<ai::AiConfig, String> {
+    ai::delete_provider(request)
+}
+
+#[tauri::command]
 fn ai_delete_model(request: ai::DeleteModelRequest) -> Result<ai::AiConfig, String> {
     ai::delete_model(request)
 }
@@ -322,6 +332,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ai_config,
             ai_save_config,
+            ai_save_provider,
+            ai_delete_provider,
             ai_delete_model,
             ai_set_feature,
             ai_set_ui_scale,

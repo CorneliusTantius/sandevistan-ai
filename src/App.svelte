@@ -29,7 +29,7 @@
   type SessionInfo = { workspace: string; active_session_id: string; messages: Message[]; sessions: SessionOption[]; workspaces: WorkspaceOption[] };
   type ChatStreamEvent = { session_id: string; kind: "start" | "delta" | "tool" | "done" | "error"; role?: Role; text?: string; content?: string };
   type FileChangedEvent = { workspace: string; paths: string[] };
-  type ProviderOption = { name: string; api_base: string };
+  type ProviderOption = { name: string; kind: string; api_base: string; api_key_header: string; has_api_key: boolean };
   type ModelOption = { name: string; provider: string; id: string; context_chars: number };
   type ThinkingLevel = "auto" | "low" | "medium" | "high";
   type AgentOption = { name: string; description: string; persona: string; thinking_level: ThinkingLevel; prompt_injection: string };
@@ -113,6 +113,7 @@
   let showMods = false;
   let showWorkspace = false;
   let addingModel = false;
+  let addingProvider = false;
   let EditorPaneComponent: any = null;
   let DiffPaneComponent: any = null;
   let TerminalPaneComponent: any = null;
@@ -161,10 +162,11 @@
   let config: AiConfig = emptyConfig;
   let uiScale = 1;
   let providerChoice = "openai";
-  let draft = { provider: "openai", api_base: "https://api.openai.com/v1", model: "gpt-4o-mini", original_model: "", api_key: "", context_chars: 80000 };
+  let draft = { provider: "openai", model: "gpt-4o-mini", original_model: "", context_chars: 80000 };
+  let providerDraft = { name: "openai", original_name: "", kind: "openai-compatible", api_base: "https://api.openai.com/v1", api_key_header: "authorization", api_key: "" };
   let modsDraft: AiMods = { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "", mcp_enabled: false, mcp_config: "" };
   let modsProfile = "default";
-  let modsTab: "general" | "profile" | "models" | "agents" | "subagents" | "mcp" | "extensions" = "profile";
+  let modsTab: "general" | "profile" | "providers" | "models" | "agents" | "subagents" | "mcp" | "extensions" = "profile";
   let addingAgent = false;
   let addingSubagent = false;
   let editingExtension = false;
@@ -177,7 +179,14 @@
   let extensionsInfo: ExtensionsInfo = { config_path: "", extensions: [] };
   $: providerOptions = [
     ...config.providers.map((provider): SelectOption => ({ value: provider.name, label: provider.name })),
-    { value: "__new__", label: "+ provider" },
+  ];
+  const providerKindOptions: SelectOption[] = [
+    { value: "openai-compatible", label: "chat/completions" },
+    { value: "openai-responses", label: "responses" },
+  ];
+  const apiKeyHeaderOptions: SelectOption[] = [
+    { value: "authorization", label: "Authorization: Bearer" },
+    { value: "api-key", label: "api-key" },
   ];
   const thinkingOptions: SelectOption[] = [
     { value: "auto", label: "auto" },
@@ -241,6 +250,17 @@
     actions: [{ label: "edit", onClick: () => editExtension(extension) }],
   }));
 
+  $: providerItems = config.providers.map((provider): Item => ({
+    key: provider.name,
+    title: provider.name,
+    subtitle: `${provider.kind} · ${provider.api_base}${provider.has_api_key ? " · key saved" : ""}`,
+    active: false,
+    onSelect: () => editProvider(provider),
+    actions: [
+      { label: "edit", onClick: () => editProvider(provider) },
+      { label: "del", danger: true, onClick: () => void deleteProvider(provider) },
+    ],
+  }));
   $: modelItems = config.models.map((model): Item => ({
     key: model.name,
     title: model.name,
@@ -296,7 +316,7 @@
 
   function setConfigDraft(value: AiConfig) {
     providerChoice = value.provider;
-    draft = { provider: value.provider, api_base: value.api_base, model: value.model, original_model: value.model, api_key: "", context_chars: value.context_chars || 80000 };
+    draft = { provider: value.provider, model: value.model, original_model: value.model, context_chars: value.context_chars || 80000 };
     modsDraft = { ...value.mods };
     modsProfile = value.active_profile || "default";
     applyUiScale(value.ui_scale || 1);
@@ -690,19 +710,17 @@
 
   function openConfig() {
     addingModel = false;
+    addingProvider = false;
     setConfigDraft(config);
     modsTab = "models";
     showMods = true;
   }
 
   async function selectModel(model: ModelOption) {
-    const provider = config.providers.find((entry) => entry.name === model.provider);
     draft = {
       provider: model.provider,
-      api_base: provider?.api_base || draft.api_base,
       model: model.name,
       original_model: model.name,
-      api_key: "",
       context_chars: model.context_chars || 80000,
     };
     const nextMods = normalizeMods({ ...config.mods, main_model: model.name });
@@ -720,28 +738,29 @@
   }
 
   function editModel(model: ModelOption) {
-    const provider = config.providers.find((entry) => entry.name === model.provider);
     addingModel = true;
     providerChoice = model.provider;
     draft = {
       provider: model.provider,
-      api_base: provider?.api_base || draft.api_base,
       model: model.name,
       original_model: model.name,
-      api_key: "",
       context_chars: model.context_chars || 80000,
     };
   }
 
   function chooseProvider(value: string) {
     providerChoice = value;
-    if (value === "__new__") {
-      draft = { ...draft, provider: "", api_base: "" };
-      return;
-    }
+    draft = { ...draft, provider: value };
+  }
 
-    const provider = config.providers.find((entry) => entry.name === value);
-    draft = { ...draft, provider: value, api_base: provider?.api_base || draft.api_base };
+  function addProvider() {
+    addingProvider = true;
+    providerDraft = { name: "", original_name: "", kind: "openai-compatible", api_base: "https://api.openai.com/v1", api_key_header: "authorization", api_key: "" };
+  }
+
+  function editProvider(provider: ProviderOption) {
+    addingProvider = true;
+    providerDraft = { name: provider.name, original_name: provider.name, kind: provider.kind, api_base: provider.api_base, api_key_header: provider.api_key_header || "authorization", api_key: "" };
   }
 
   function openMods() {
@@ -1481,6 +1500,29 @@
     }
   }
 
+  async function saveProvider() {
+    busy = true;
+    try {
+      config = await invoke<AiConfig>("ai_save_provider", { update: providerDraft });
+      setConfigDraft(config);
+      addingProvider = false;
+    } catch (error) {
+      addMessage("error", String(error));
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function deleteProvider(provider: ProviderOption) {
+    if (!confirm(`Delete provider ${provider.name}?`)) return;
+    try {
+      config = await invoke<AiConfig>("ai_delete_provider", { request: { provider: provider.name } });
+      setConfigDraft(config);
+    } catch (error) {
+      addMessage("error", String(error));
+    }
+  }
+
   function closeWindow() {
     void getCurrentWindow().close();
   }
@@ -1789,6 +1831,7 @@
         <nav class="mods-nav" aria-label="mods sections">
           <button class:active={modsTab === "general"} class="ghost" type="button" on:click={() => (modsTab = "general")}>general</button>
           <button class:active={modsTab === "profile"} class="ghost" type="button" on:click={() => (modsTab = "profile")}>profile</button>
+          <button class:active={modsTab === "providers"} class="ghost" type="button" on:click={() => (modsTab = "providers")}>providers</button>
           <button class:active={modsTab === "models"} class="ghost" type="button" on:click={() => (modsTab = "models")}>models</button>
           <button class:active={modsTab === "agents"} class="ghost" type="button" on:click={() => (modsTab = "agents")}>agents</button>
           <button class:active={modsTab === "subagents"} class="ghost" type="button" on:click={() => (modsTab = "subagents")}>subagents</button>
@@ -1826,16 +1869,24 @@
               </div>
             {/if}
             <p class="hint">profile = model + one agent + selected subagents. changes affect next run.</p>
+          {:else if modsTab === "providers"}
+            {#if !addingProvider}
+              <div class="model-scroll"><ItemList items={providerItems} addTitle="+ add provider" addSubtitle="endpoint + key" onAdd={addProvider} /></div>
+            {:else}
+              <label>Provider name<input bind:value={providerDraft.name} placeholder="openai" /></label>
+              <label>Kind<SelectBox fit value={providerDraft.kind} options={providerKindOptions} onChange={(value) => (providerDraft = { ...providerDraft, kind: value })} /></label>
+              <label>API base<input bind:value={providerDraft.api_base} placeholder="https://api.openai.com/v1" /></label>
+              <label>API key header<SelectBox fit value={providerDraft.api_key_header} options={apiKeyHeaderOptions} onChange={(value) => (providerDraft = { ...providerDraft, api_key_header: value })} /></label>
+              <label>API key <small>{providerDraft.original_name && config.providers.find((p) => p.name === providerDraft.original_name)?.has_api_key ? "saved; leave blank to keep" : "not set"}</small><input bind:value={providerDraft.api_key} type="password" placeholder="sk-..." /></label>
+              <div class="actions right"><button class="ghost" type="button" on:click={() => (addingProvider = false)}>back</button><button type="button" disabled={busy} on:click={() => void saveProvider()}>save provider</button></div>
+            {/if}
           {:else if modsTab === "models"}
             {#if !addingModel}
-              <div class="model-scroll"><ItemList items={modelItems} addTitle="+ add model" addSubtitle="OpenAI-compatible" onAdd={startAddModel} /></div>
+              <div class="model-scroll"><ItemList items={modelItems} addTitle="+ add model" addSubtitle="select provider" onAdd={startAddModel} /></div>
             {:else}
               <label>Provider<SelectBox fit value={providerChoice} options={providerOptions} onChange={chooseProvider} /></label>
-              {#if providerChoice === "__new__"}<label>Provider name<input bind:value={draft.provider} placeholder="openai" /></label>{/if}
-              <label>API base<input bind:value={draft.api_base} placeholder="https://api.openai.com/v1" /></label>
               <label>Model<input bind:value={draft.model} placeholder="gpt-4o-mini" /></label>
               <label>Context chars<input bind:value={draft.context_chars} type="number" min="4000" max="1000000" step="1000" /></label>
-              <label>API key <small>{config.has_api_key ? "saved; leave blank to keep" : "not set"}</small><input bind:value={draft.api_key} type="password" placeholder="sk-..." /></label>
               <div class="actions right"><button class="ghost" type="button" on:click={() => (addingModel = false)}>back</button><button type="button" disabled={busy} on:click={saveConfig}>save model</button></div>
             {/if}
           {:else if modsTab === "agents"}
@@ -1913,7 +1964,7 @@ SUPABASE_ACCESS_TOKEN=..."></textarea></label>
     <Modal title="Model" onClose={() => (showConfig = false)}>
         {#if !addingModel}
           <div class="model-scroll">
-            <ItemList items={modelItems} addTitle="+ add model" addSubtitle="OpenAI-compatible" onAdd={startAddModel} />
+            <ItemList items={modelItems} addTitle="+ add model" addSubtitle="select provider" onAdd={startAddModel} />
           </div>
           <div class="feature-list">
             <div class="side-title">features</div>
@@ -1921,33 +1972,10 @@ SUPABASE_ACCESS_TOKEN=..."></textarea></label>
             <button class="ghost" type="button" on:click={() => void setFeature("file_watcher", !featureFileWatcher)}>file watcher: {featureFileWatcher ? "on" : "off"}</button>
           </div>
         {:else}
-          <label>
-            Provider
-            <SelectBox fit value={providerChoice} options={providerOptions} onChange={chooseProvider} />
-          </label>
-          {#if providerChoice === "__new__"}
-            <label>
-              Provider name
-              <input bind:value={draft.provider} placeholder="openai" />
-            </label>
-          {/if}
-          <label>
-            API base
-            <input bind:value={draft.api_base} placeholder="https://api.openai.com/v1" />
-          </label>
-          <label>
-            Model
-            <input bind:value={draft.model} placeholder="gpt-4o-mini" />
-          </label>
-          <label>
-            Context chars
-            <input bind:value={draft.context_chars} type="number" min="4000" max="1000000" step="1000" />
-          </label>
-          <label>
-            API key <small>{config.has_api_key ? "saved; leave blank to keep" : "not set"}</small>
-            <input bind:value={draft.api_key} type="password" placeholder="sk-..." />
-          </label>
-          <p class="hint">{config.config_dir || "~/.sandevistan"}</p>
+          <label>Provider<SelectBox fit value={providerChoice} options={providerOptions} onChange={chooseProvider} /></label>
+          <label>Model<input bind:value={draft.model} placeholder="gpt-4o-mini" /></label>
+          <label>Context chars<input bind:value={draft.context_chars} type="number" min="4000" max="1000000" step="1000" /></label>
+          <p class="hint">Provider endpoint/key live in Mods → providers.</p>
           <div class="actions right">
             <button class="ghost" type="button" on:click={() => (addingModel = false)}>back</button>
             <button type="button" disabled={busy} on:click={saveConfig}>save model</button>
