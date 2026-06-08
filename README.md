@@ -16,8 +16,8 @@
 | Platform | Command |
 |---|---|
 | Arch / Linux tar | <code>curl -fsSL https://raw.githubusercontent.com/CorneliusTantius/sandevistan-ai/main/docs/scripts/install-arch-native.sh &#124; sh</code> |
-| Debian / Ubuntu | <code>url=$(curl -fsSL https://api.github.com/repos/CorneliusTantius/sandevistan-ai/releases/latest &#124; grep -Eo 'https://[^\"]+sandevistan-[^\"]+-x86\.deb' &#124; head -n1) && curl -fsSL "$url" -o sandevistan.deb && sudo apt install ./sandevistan.deb</code> |
-| Fedora / RHEL | <code>url=$(curl -fsSL https://api.github.com/repos/CorneliusTantius/sandevistan-ai/releases/latest &#124; grep -Eo 'https://[^\"]+sandevistan-[^\"]+-x86\.rpm' &#124; head -n1) && curl -fsSL "$url" -o sandevistan.rpm && sudo dnf install ./sandevistan.rpm</code> |
+| Debian / Ubuntu | <code>curl -fsSL https://raw.githubusercontent.com/CorneliusTantius/sandevistan-ai/main/install-debian-ubuntu.sh &#124; sh</code> |
+| Fedora / RHEL | <code>curl -fsSL https://raw.githubusercontent.com/CorneliusTantius/sandevistan-ai/main/install-fedora.sh &#124; sh</code> |
 | Windows | Download installer from latest release. |
 | macOS Intel / Apple Silicon | <code>curl -fsSL https://raw.githubusercontent.com/CorneliusTantius/sandevistan-ai/main/docs/scripts/install-macos.sh &#124; sh</code> |
 
