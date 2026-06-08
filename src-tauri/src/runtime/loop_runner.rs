@@ -24,6 +24,7 @@ pub type AgentEventSink = Arc<dyn Fn(AgentEvent) + Send + Sync>;
 #[derive(Clone)]
 pub struct AgentRuntimeConfig {
     pub workspace: PathBuf,
+    pub session_id: String,
     pub messages: Vec<ChatMessage>,
     pub mods: ai::ModelMods,
     pub prompt_config: prompt_context::PromptConfig,
@@ -198,6 +199,7 @@ impl AgentRuntime {
                     name,
                 });
                 let workspace = config.workspace.clone();
+                let session_id = config.session_id.clone();
                 let mods = config.mods.clone();
                 let budgets = config.budgets.clone();
                 let read_only = config.read_only;
@@ -213,6 +215,7 @@ impl AgentRuntime {
                     }
                     let content = tool_exec::run_streamed_tool_call(
                         workspace,
+                        session_id,
                         tool_call,
                         mods,
                         &budgets,

@@ -28,10 +28,11 @@ pub struct ToolCall {
     pub args: Value,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ToolOptions {
     pub rtk_enabled: bool,
     pub shell_enabled: bool,
+    pub backup_session_id: Option<String>,
 }
 
 struct ToolRunResult {
@@ -208,7 +209,7 @@ fn fs_read(workspace: &Path, relative: String) -> Result<String, String> {
     read_text(&path)
 }
 
-fn fs_write(workspace: &Path, args: &Value) -> Result<String, String> {
+fn fs_write(workspace: &Path, args: &Value, options: ToolOptions) -> Result<String, String> {
     let relative = arg_string(args, "path").ok_or_else(|| "missing path".to_string())?;
     let content = arg_string(args, "content").ok_or_else(|| "missing content".to_string())?;
     if content.len() > MAX_WRITE_BYTES {
@@ -217,7 +218,7 @@ fn fs_write(workspace: &Path, args: &Value) -> Result<String, String> {
 
     let path = resolve_for_write(workspace, &relative)?;
     let backup = if path.exists() {
-        Some(backup_file(workspace, &path)?)
+        Some(backup_file(workspace, &path, options.backup_session_id.as_deref())?)
     } else {
         None
     };
@@ -235,7 +236,7 @@ fn fs_write(workspace: &Path, args: &Value) -> Result<String, String> {
     ))
 }
 
-fn fs_edit(workspace: &Path, args: &Value) -> Result<String, String> {
+fn fs_edit(workspace: &Path, args: &Value, options: ToolOptions) -> Result<String, String> {
     let relative = arg_string(args, "path").ok_or_else(|| "missing path".to_string())?;
     let old = arg_string(args, "old").ok_or_else(|| "missing old".to_string())?;
     let new = arg_string(args, "new").ok_or_else(|| "missing new".to_string())?;
@@ -254,7 +255,7 @@ fn fs_edit(workspace: &Path, args: &Value) -> Result<String, String> {
         return Err(format!("old text match count is {matches}, expected 1"));
     }
 
-    let backup = backup_file(workspace, &path)?;
+    let backup = backup_file(workspace, &path, options.backup_session_id.as_deref())?;
     let next = content.replacen(&old, &new, 1);
     fs::write(&path, next.as_bytes()).map_err(|error| format!("file write failed: {error}"))?;
 
@@ -638,12 +639,13 @@ fn read_text(path: &Path) -> Result<String, String> {
     fs::read_to_string(path).map_err(|error| format!("file read failed: {error}"))
 }
 
-fn backup_file(workspace: &Path, path: &Path) -> Result<PathBuf, String> {
+fn backup_file(workspace: &Path, path: &Path, session_id: Option<&str>) -> Result<PathBuf, String> {
     let relative = path
         .strip_prefix(workspace)
         .map_err(|_| "path outside workspace")?;
     let backup = config_dir()
         .join("backups")
+        .join(session_id.unwrap_or("unknown-session"))
         .join(now_ms().to_string())
         .join(hash_path(workspace))
         .join(relative);
@@ -753,6 +755,7 @@ pub fn native_system_prompt(
         "You are Sandevistan, a concise coding agent.".to_string(),
         "Use tools when workspace context is needed; otherwise answer directly.".to_string(),
         "Prefer targeted reads/searches over broad exploration.".to_string(),
+        "Strictly use targeted commands: inspect specific files, paths, symbols, line ranges, or narrow search patterns. Do not run broad/noisy commands like full-tree cat/ls/find/rg, huge diffs, or verbose builds unless explicitly needed.".to_string(),
         "After tool results, answer briefly with final useful result.".to_string(),
         "Do not call tools after task is complete.".to_string(),
         "Prefer fs.edit for existing files. Use fs.write for new files.".to_string(),
@@ -1059,12 +1062,12 @@ fn exec_fs_read(workspace: &Path, args: &Value, options: ToolOptions) -> Result<
     }
 }
 
-fn exec_fs_edit(workspace: &Path, args: &Value, _: ToolOptions) -> Result<String, String> {
-    fs_edit(workspace, args)
+fn exec_fs_edit(workspace: &Path, args: &Value, options: ToolOptions) -> Result<String, String> {
+    fs_edit(workspace, args, options)
 }
 
-fn exec_fs_write(workspace: &Path, args: &Value, _: ToolOptions) -> Result<String, String> {
-    fs_write(workspace, args)
+fn exec_fs_write(workspace: &Path, args: &Value, options: ToolOptions) -> Result<String, String> {
+    fs_write(workspace, args, options)
 }
 
 fn exec_search_rg(workspace: &Path, args: &Value, options: ToolOptions) -> Result<String, String> {

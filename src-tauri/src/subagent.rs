@@ -156,7 +156,7 @@ async fn run_one_inner(
         "- do not delegate; delegate depth exhausted"
     };
     let system = format!(
-        "{}\n\nSubagent role: {}\n{}\nRules:\n- concise findings only\n- use tools when needed\n{}\n- return final answer only",
+        "{}\n\nSubagent role: {}\n{}\nRules:\n- concise findings only\n- use tools when needed\n- strictly use targeted commands; inspect specific files/paths/symbols/line ranges or narrow searches, never broad/noisy commands unless explicitly necessary\n{}\n- return final answer only",
         tools_prompt,
         def.name,
         def.system.trim(),
@@ -176,6 +176,7 @@ async fn run_one_inner(
     let result = runtime
         .run(crate::runtime::AgentRuntimeConfig {
             workspace,
+            session_id: format!("subagent-{}", def.name),
             messages: vec![ChatMessage {
                 role: "user".into(),
                 content: format!("Task:\n{task_text}"),

@@ -9,6 +9,7 @@ use super::{budget::AgentBudgets, tool_validation::validate_tool_call};
 
 pub async fn run_streamed_tool_call(
     workspace: PathBuf,
+    session_id: String,
     call: tools::ToolCall,
     mods: ai::ModelMods,
     budgets: &AgentBudgets,
@@ -66,6 +67,7 @@ pub async fn run_streamed_tool_call(
 
     let output = run_tool_call(
         workspace,
+        session_id,
         call,
         mods,
         budgets.tool_timeout,
@@ -83,6 +85,7 @@ fn failed_tool_content(name: &str, error: &str) -> String {
 
 async fn run_tool_call(
     workspace: PathBuf,
+    session_id: String,
     call: tools::ToolCall,
     mods: ai::ModelMods,
     timeout: Duration,
@@ -103,6 +106,7 @@ async fn run_tool_call(
     }
     run_tool_blocking(
         workspace,
+        session_id,
         call,
         mods.rtk_enabled,
         mods.shell_enabled,
@@ -113,6 +117,7 @@ async fn run_tool_call(
 
 async fn run_tool_blocking(
     workspace: PathBuf,
+    session_id: String,
     call: tools::ToolCall,
     rtk_enabled: bool,
     shell_enabled: bool,
@@ -127,6 +132,7 @@ async fn run_tool_blocking(
                 tools::ToolOptions {
                     rtk_enabled,
                     shell_enabled,
+                    backup_session_id: Some(session_id),
                 },
             )
         }),

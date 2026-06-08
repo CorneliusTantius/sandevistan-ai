@@ -250,6 +250,11 @@ impl ChatRuntime {
         index.sessions.retain(|session| session.id != request.id);
         let _ = fs::remove_file(session_file_path(&state.workspace, &request.id));
         let _ = fs::remove_file(session_summary_path(&state.workspace, &request.id));
+        let backup_dir = session_backup_dir(&request.id);
+        if backup_dir.exists() {
+            fs::remove_dir_all(&backup_dir)
+                .map_err(|error| format!("session backup delete failed: {error}"))?;
+        }
 
         if index.sessions.is_empty() {
             let session = create_session(&state.workspace);
@@ -584,6 +589,7 @@ async fn run_native_agent_loop(
     let result = runtime
         .run(crate::runtime::AgentRuntimeConfig {
             workspace: workspace.clone(),
+            session_id: session_id.to_string(),
             messages,
             mods,
             prompt_config,
@@ -1132,6 +1138,10 @@ fn session_file_path(workspace: &PathBuf, session_id: &str) -> PathBuf {
 
 fn session_summary_path(workspace: &PathBuf, session_id: &str) -> PathBuf {
     workspace_sessions_dir(workspace).join(format!("{session_id}.summary.json"))
+}
+
+fn session_backup_dir(session_id: &str) -> PathBuf {
+    config_dir().join("backups").join(session_id)
 }
 
 fn normalize_workspace(path: String) -> Result<PathBuf, String> {
