@@ -18,7 +18,18 @@
     const last = statuses.at(-1)?.[1]?.trim().toLowerCase() ?? "";
     if (last.startsWith("running")) return "running";
     if (/^(failed|error)\b/.test(last)) return "failed";
-    return "done";
+    if (/^(ok|done|success|succeeded)\b/.test(last)) return "done";
+    return "running";
+  }
+
+  function counts() {
+    return tools.reduce(
+      (acc, tool) => {
+        acc[status(tool.content)] += 1;
+        return acc;
+      },
+      { done: 0, running: 0, failed: 0 } as Record<"done" | "running" | "failed", number>,
+    );
   }
 
   function groupStatus() {
@@ -30,11 +41,14 @@
   function toggleItem(index: number) {
     openItems = { ...openItems, [index]: !openItems[index] };
   }
+
+  $: count = counts();
 </script>
 
 <article class="tool-group">
   <button class="group-toggle" type="button" on:click|stopPropagation={() => (open = !open)}>
-    tools × {tools.length} {open ? "[-]" : "[+]"}<span class={`status-dot ${groupStatus()}`} aria-hidden="true"></span>
+    <span class={`status-dot ${groupStatus()}`} aria-hidden="true"></span>
+    <span class="summary">tools × {tools.length} ({count.done} ok | {count.running} hang | {count.failed} fail) {open ? "[-]" : "[+]"}</span>
   </button>
 
   {#if open}
@@ -74,6 +88,11 @@
     background: color-mix(in srgb, var(--black) 88%, var(--panel));
     text-align: left;
     cursor: pointer;
+    font-size: 12px;
+  }
+
+  .summary {
+    font-size: 10px;
   }
 
   .status-dot {

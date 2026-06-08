@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use tauri::Manager;
+use tauri::{Manager, PhysicalSize, Size};
 
 mod agent;
 mod ai;
@@ -323,6 +323,13 @@ pub fn run() {
         .manage(watcher::FileWatcherState::default())
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
+                if let Ok(Some(monitor)) = window.current_monitor().or_else(|_| window.primary_monitor()) {
+                    let screen_size = monitor.size();
+                    let _ = window.set_size(Size::Physical(PhysicalSize::new(
+                        screen_size.width,
+                        screen_size.height,
+                    )));
+                }
                 let _ = window.maximize();
                 let _ = window.show();
                 let _ = window.set_focus();
