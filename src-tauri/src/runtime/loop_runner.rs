@@ -59,6 +59,8 @@ impl AgentRuntimeError {
     }
 }
 
+const STORED_TOOL_CHARS: usize = 4_000;
+
 struct ToolRunRecord {
     index: usize,
     call: NativeToolCall,
@@ -252,9 +254,10 @@ impl AgentRuntime {
                     name: record.call.name.clone(),
                     content: record.content.clone(),
                 });
+                let stored_content = truncate_chars(&record.content, STORED_TOOL_CHARS);
                 config.messages.push(ChatMessage {
                     role: "tool".into(),
-                    content: record.content.clone(),
+                    content: stored_content,
                 });
                 agent_messages.push(AgentMessage::tool_result(
                     record.call.id,
@@ -267,6 +270,20 @@ impl AgentRuntime {
             turn_index += 1;
         }
     }
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.into();
+    }
+    let mut end = 0;
+    for (count, (index, ch)) in value.char_indices().enumerate() {
+        if count >= max_chars {
+            break;
+        }
+        end = index + ch.len_utf8();
+    }
+    format!("{}\n... truncated to {max_chars} chars", &value[..end])
 }
 
 fn runtime_error(

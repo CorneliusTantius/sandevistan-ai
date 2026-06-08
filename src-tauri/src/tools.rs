@@ -11,16 +11,16 @@ use std::{
 
 const CONFIG_DIR_NAME: &str = ".sandevistan";
 const MAX_LIST_ENTRIES: usize = 200;
-const MAX_READ_BYTES: u64 = 50_000;
+const MAX_READ_BYTES: u64 = 24_000;
 const MAX_WRITE_BYTES: usize = 200_000;
-const MAX_TOOL_OUTPUT_BYTES: usize = 64_000;
+const MAX_TOOL_OUTPUT_BYTES: usize = 16_000;
 const MAX_SEARCH_RESULTS: usize = 200;
-const MAX_DIFF_BYTES: usize = 200_000;
+const MAX_DIFF_BYTES: usize = 50_000;
 const TOOL_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
 const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
 const SHELL_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 const RTK_REWRITE_TIMEOUT: Duration = Duration::from_secs(15);
-const MAX_SHELL_OUTPUT_BYTES: usize = 120_000;
+const MAX_SHELL_OUTPUT_BYTES: usize = 24_000;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ToolCall {
@@ -595,10 +595,22 @@ fn rtk_path() -> Option<PathBuf> {
                 .into_iter()
                 .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
                 .chain(rtk_fallback_dirs())
-                .map(|path| path.join("rtk"))
+                .flat_map(|dir| {
+                    rtk_executable_names()
+                        .iter()
+                        .map(move |name| dir.join(name))
+                })
                 .find(|path| path.is_file())
         })
         .clone()
+}
+
+fn rtk_executable_names() -> &'static [&'static str] {
+    if cfg!(windows) {
+        &["rtk.exe", "rtk.cmd", "rtk.bat", "rtk"]
+    } else {
+        &["rtk"]
+    }
 }
 
 fn rtk_fallback_dirs() -> Vec<PathBuf> {
@@ -606,6 +618,11 @@ fn rtk_fallback_dirs() -> Vec<PathBuf> {
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(".local/bin"));
         dirs.push(home.join(".cargo/bin"));
+    }
+    if cfg!(windows) {
+        if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
+            dirs.push(PathBuf::from(local_app_data).join("Programs").join("rtk"));
+        }
     }
     dirs
 }

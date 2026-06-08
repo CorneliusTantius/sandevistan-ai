@@ -730,6 +730,8 @@ async fn finish_task(
         }
     }
 
+    auto_compact_session_file(workspace, session_id, &mut file).ok();
+
     if let Some(meta) = index
         .sessions
         .iter_mut()
@@ -743,6 +745,55 @@ async fn finish_task(
     }
     save_session_file(workspace, &file)?;
     save_index(workspace, &index)
+}
+
+fn auto_compact_session_file(
+    workspace: &PathBuf,
+    session_id: &str,
+    file: &mut SessionFile,
+) -> Result<(), String> {
+    const KEEP_RECENT: usize = 8;
+    const AUTO_COMPACT_RATIO_NUM: usize = 3;
+    const AUTO_COMPACT_RATIO_DEN: usize = 2;
+
+    let prompt_config = ai::prompt_config();
+    let transcript_chars = file
+        .messages
+        .iter()
+        .map(|message| message.role.len() + message.content.len() + 8)
+        .sum::<usize>();
+    let threshold = prompt_config
+        .max_prompt_chars
+        .saturating_mul(AUTO_COMPACT_RATIO_NUM)
+        / AUTO_COMPACT_RATIO_DEN;
+    if file.messages.len() <= KEEP_RECENT + 1 || transcript_chars <= threshold {
+        return Ok(());
+    }
+
+    let summary = load_session_summary(workspace, session_id)?.summary;
+    if summary.trim().is_empty() {
+        return Ok(());
+    }
+
+    let recent_start = file.messages.len().saturating_sub(KEEP_RECENT);
+    let recent = file.messages[recent_start..].to_vec();
+    file.messages = vec![ChatMessage {
+        role: "assistant".into(),
+        content: format!("Session compacted automatically. Summary:
+
+{}", summary.trim()),
+    }];
+    file.messages.extend(recent);
+    save_session_summary(
+        workspace,
+        session_id,
+        &SessionSummary {
+            summary,
+            last_message_count: 1,
+            updated_at: now_ms(),
+        },
+    )?;
+    Ok(())
 }
 
 fn session_info(workspace: &PathBuf, active_session_id: &str) -> Result<SessionInfo, String> {
