@@ -951,6 +951,7 @@ fn native_call_from_parts(id: String, openai_name: String, args: String) -> Opti
     let name = tools::original_tool_name(&openai_name)
         .map(str::to_string)
         .or_else(|| crate::extensions::original_tool_name(&openai_name))
+        .or_else(|| crate::mcp::original_tool_name(&openai_name).map(str::to_string))
         .unwrap_or_else(|| openai_name.clone());
     Some(NativeToolCall {
         id,

@@ -51,6 +51,8 @@
     subagent_model: string;
     subagent_max_concurrency: number;
     subagents_config: string;
+    mcp_enabled: boolean;
+    mcp_config: string;
   };
   type ProfileOption = AiMods & { name: string };
   type AiConfig = {
@@ -84,9 +86,9 @@
     providers: [],
     models: [],
     features: { content_search: true, git: true, file_watcher: true },
-    mods: { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" },
+    mods: { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "", mcp_enabled: false, mcp_config: "" },
     active_profile: "default",
-    profiles: [{ name: "default", main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" }],
+    profiles: [{ name: "default", main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "", mcp_enabled: false, mcp_config: "" }],
     agents: [{ name: "custom", description: "Default main agent", persona: "", thinking_level: "auto", prompt_injection: "" }],
     subagents_registry: [],
     rtk_available: false,
@@ -158,9 +160,9 @@
   let uiScale = 1;
   let providerChoice = "openai";
   let draft = { provider: "openai", api_base: "https://api.openai.com/v1", model: "gpt-4o-mini", original_model: "", api_key: "", context_chars: 80000 };
-  let modsDraft: AiMods = { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" };
+  let modsDraft: AiMods = { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "", mcp_enabled: false, mcp_config: "" };
   let modsProfile = "default";
-  let modsTab: "general" | "profile" | "models" | "agents" | "subagents" | "extensions" = "profile";
+  let modsTab: "general" | "profile" | "models" | "agents" | "subagents" | "mcp" | "extensions" = "profile";
   let addingAgent = false;
   let addingSubagent = false;
   let editingExtension = false;
@@ -715,11 +717,13 @@
       git_panel_enabled: value.git_panel_enabled ?? true,
       subagents_enabled: value.subagents_enabled ?? true,
       subagent_max_concurrency: Math.min(5, Math.max(1, Number(value.subagent_max_concurrency) || 3)),
+      mcp_enabled: value.mcp_enabled ?? false,
+      mcp_config: value.mcp_config || "",
     };
   }
 
   function defaultMods(): AiMods {
-    return { main_model: config.model || "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: config.rtk_available, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "" };
+    return { main_model: config.model || "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: config.rtk_available, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "", mcp_enabled: false, mcp_config: "" };
   }
 
   function toggleSubagent(name: string) {
@@ -1629,6 +1633,7 @@
           <button class:active={modsTab === "models"} class="ghost" type="button" on:click={() => (modsTab = "models")}>models</button>
           <button class:active={modsTab === "agents"} class="ghost" type="button" on:click={() => (modsTab = "agents")}>agents</button>
           <button class:active={modsTab === "subagents"} class="ghost" type="button" on:click={() => (modsTab = "subagents")}>subagents</button>
+          <button class:active={modsTab === "mcp"} class="ghost" type="button" on:click={() => (modsTab = "mcp")}>mcp</button>
           <button class:active={modsTab === "extensions"} class="ghost" type="button" on:click={() => { modsTab = "extensions"; void loadExtensionsInfo(); }}>extensions</button>
         </nav>
 
@@ -1696,6 +1701,17 @@
               <label>System<textarea bind:value={subagentDraft.system} rows="6" placeholder="subagent role and rules"></textarea></label>
               <div class="actions right"><button class="ghost" type="button" on:click={() => (addingSubagent = false)}>back</button><button type="button" disabled={!subagentDraft.name.trim() || !subagentDraft.system.trim()} on:click={() => void saveSubagent()}>save subagent</button><button class="ghost danger" type="button" disabled={!subagentDraft.original_name} on:click={() => void deleteSubagent(subagentDraft.original_name)}>delete</button></div>
             {/if}
+          {:else if modsTab === "mcp"}
+            <div class="feature-list compact-feature-list">
+              <div class="side-title">MCP</div>
+              <Checkbox checked={modsDraft.mcp_enabled} label={`MCP tools: ${modsDraft.mcp_enabled ? "on" : "off"}`} onChange={(checked) => (modsDraft = { ...modsDraft, mcp_enabled: checked })} />
+            </div>
+            <label>MCP config<textarea bind:value={modsDraft.mcp_config} rows="12" placeholder={`[[servers]]
+name = "memory"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-memory"]
+timeout_ms = 8000`}></textarea></label>
+            <p class="hint">Built-in lightweight stdio MCP client. Tools exposed when enabled: mcp.list, mcp.call. Changes affect next run.</p>
           {:else if modsTab === "extensions"}
             {#if !editingExtension}
               <p class="hint">Config: {extensionsInfo.config_path || "~/.sandevistan/extensions.toml"}</p>

@@ -57,6 +57,8 @@ pub struct ModsUpdate {
     subagent_model: Option<String>,
     subagent_max_concurrency: Option<usize>,
     subagents_config: Option<String>,
+    mcp_enabled: Option<bool>,
+    mcp_config: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -136,6 +138,8 @@ pub struct ModelMods {
     pub subagent_model: String,
     pub subagent_max_concurrency: usize,
     pub subagents_config: String,
+    pub mcp_enabled: bool,
+    pub mcp_config: String,
     pub subagents_registry: Vec<SubagentDef>,
 }
 
@@ -155,6 +159,8 @@ pub struct ProfileOption {
     subagent_model: String,
     subagent_max_concurrency: usize,
     subagents_config: String,
+    mcp_enabled: bool,
+    mcp_config: String,
 }
 
 #[derive(Debug)]
@@ -203,6 +209,8 @@ struct ProfileConfig {
     subagent_model: Option<String>,
     subagent_max_concurrency: Option<usize>,
     subagents_config: Option<String>,
+    mcp_enabled: Option<bool>,
+    mcp_config: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -369,6 +377,8 @@ pub fn set_mods(update: ModsUpdate) -> Result<AiConfig, String> {
                 .subagent_max_concurrency
                 .map(clean_subagent_concurrency),
             subagents_config: update.subagents_config.and_then(clean_optional),
+            mcp_enabled: update.mcp_enabled,
+            mcp_config: update.mcp_config.and_then(clean_optional),
         },
     );
     app.active_profile = Some(profile);
@@ -1032,6 +1042,10 @@ fn model_mods(app: &AppConfig, agents: &AgentsConfig, name: &str) -> ModelMods {
         subagents_config: profile
             .and_then(|value| value.subagents_config.clone())
             .unwrap_or_default(),
+        mcp_enabled: profile.and_then(|value| value.mcp_enabled).unwrap_or(false),
+        mcp_config: profile
+            .and_then(|value| value.mcp_config.clone())
+            .unwrap_or_default(),
         subagents_registry: subagent_defs(agents),
     }
 }
@@ -1065,6 +1079,8 @@ fn profile_options() -> Vec<ProfileOption> {
                 profile.subagent_max_concurrency.unwrap_or(8),
             ),
             subagents_config: profile.subagents_config.unwrap_or_default(),
+            mcp_enabled: profile.mcp_enabled.unwrap_or(false),
+            mcp_config: profile.mcp_config.unwrap_or_default(),
         })
         .collect::<Vec<_>>();
     entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -1097,6 +1113,8 @@ fn normalized_profiles(app: &AppConfig) -> HashMap<String, ProfileConfig> {
         subagent_model: None,
         subagent_max_concurrency: None,
         subagents_config: None,
+        mcp_enabled: None,
+        mcp_config: None,
     });
     profiles
 }

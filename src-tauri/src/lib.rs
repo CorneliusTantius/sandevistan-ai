@@ -7,6 +7,7 @@ mod command_utils;
 mod context;
 mod extensions;
 mod files;
+mod mcp;
 mod provider;
 mod runtime;
 mod runtime_wire;
@@ -180,7 +181,9 @@ fn chat_cancel(chat: tauri::State<'_, agent::ChatRuntime>) -> Result<agent::Sess
 }
 
 #[tauri::command]
-async fn chat_compact(chat: tauri::State<'_, agent::ChatRuntime>) -> Result<agent::SessionInfo, String> {
+async fn chat_compact(
+    chat: tauri::State<'_, agent::ChatRuntime>,
+) -> Result<agent::SessionInfo, String> {
     chat.compact_active().await
 }
 

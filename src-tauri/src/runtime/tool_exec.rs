@@ -1,7 +1,7 @@
 use crate::{
     ai,
     extensions::hooks::{HookDecision, HookEvent},
-    subagent, tools,
+    mcp, subagent, tools,
 };
 use std::{path::PathBuf, time::Duration};
 
@@ -52,6 +52,11 @@ pub async fn run_streamed_tool_call(
                 return failed_tool_content(&name, &format!("modified tool call invalid: {error}"))
             }
         };
+    }
+
+    if mcp::is_mcp_tool(&call.name) {
+        let output = mcp::run(&workspace, call, &mods.mcp_config).await;
+        return format!("{name}\n{output}");
     }
 
     if crate::extensions::is_extension_tool(&call.name) {
