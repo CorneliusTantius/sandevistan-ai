@@ -5,77 +5,41 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open } from "@tauri-apps/plugin-dialog";
   import Checkbox from "./components/Checkbox.svelte";
+  import AppHeader from "./components/AppHeader.svelte";
+  import AppSidebar from "./components/AppSidebar.svelte";
+  import ChatPanel from "./components/ChatPanel.svelte";
   import type { DiffTab } from "./components/DiffPane.svelte";
   import type { OpenFile } from "./components/EditorPane.svelte";
-  import FileTree, { type FileEntry } from "./components/FileTree.svelte";
+  import { type FileEntry } from "./components/FileTree.svelte";
   import ItemList, { type Item } from "./components/ItemList.svelte";
-  import MessageView from "./components/MessageView.svelte";
   import Modal from "./components/Modal.svelte";
   import SelectBox, { type SelectOption } from "./components/SelectBox.svelte";
-
-  import ToolGroup from "./components/ToolGroup.svelte";
+  import type {
+    AgentOption,
+    AiConfig,
+    AiMods,
+    ChatStreamEvent,
+    ExtensionsInfo,
+    ExtensionInfo,
+    FileChangedEvent,
+    GitStatus,
+    McpServer,
+    McpServerDraft,
+    Message,
+    MessageGroup,
+    ModelOption,
+    ProfileOption,
+    ProviderOption,
+    SearchHit,
+    SessionInfo,
+    SessionOption,
+    SubagentOption,
+    TextSnapshot,
+    ThinkingLevel,
+    WorkspaceOption,
+  } from "./types";
 
   const appVersion = import.meta.env.PACKAGE_VERSION ?? "dev";
-
-  type Role = "user" | "assistant" | "tool" | "error";
-  type SearchHit = { path: string; line: number; column: number; text: string };
-  type GitStatusEntry = { path: string; status: string; raw: string };
-  type GitStatus = { branch: string; entries: GitStatusEntry[] };
-  type Message = { role: Role; content: string };
-  type TextSnapshot = { value: string; selectionStart: number; selectionEnd: number };
-  type MessageGroup = { key: string; kind: "message"; message: Message } | { key: string; kind: "tools"; tools: Message[] };
-  type WorkspaceOption = { path: string; name: string; deletable: boolean };
-  type SessionOption = { id: string; title: string; preview: string; message_count: number; updated_at: number; running: boolean };
-  type SessionInfo = { workspace: string; active_session_id: string; messages: Message[]; sessions: SessionOption[]; workspaces: WorkspaceOption[] };
-  type ChatStreamEvent = { id?: string; session_id: string; kind: "start" | "delta" | "tool" | "done" | "error" | "usage"; role?: Role; text?: string; content?: string; input_tokens?: number; output_tokens?: number; total_tokens?: number };
-  type FileChangedEvent = { workspace: string; paths: string[] };
-  type ProviderOption = { name: string; kind: string; api_base: string; api_key_header: string; has_api_key: boolean };
-  type ModelOption = { name: string; provider: string; id: string; context_chars: number };
-  type ThinkingLevel = "auto" | "low" | "medium" | "high";
-  type AgentOption = { name: string; description: string; persona: string; thinking_level: ThinkingLevel; prompt_injection: string };
-  type SubagentOption = { name: string; description: string; system: string; model: string; max_result_chars: number };
-  type ExtensionToolInfo = { name: string; description: string };
-  type ExtensionInfo = { id: string; name: string; enabled: boolean; removable: boolean; description: string; path?: string; hooks: string[]; tools: ExtensionToolInfo[] };
-  type ExtensionsInfo = { config_path: string; extensions: ExtensionInfo[] };
-  type McpServer = { name: string; command: string; args: string[]; timeout_ms: number; env: Record<string, string> };
-  type McpServerDraft = { name: string; original_name: string; command: string; args: string; timeout_ms: number; env: string };
-  type AiMods = {
-    main_model: string;
-    main_agent: string;
-    subagents: string[];
-    persona: string;
-    thinking_level: ThinkingLevel;
-    prompt_injection: string;
-    rtk_enabled: boolean;
-    shell_enabled: boolean;
-    git_panel_enabled: boolean;
-    subagents_enabled: boolean;
-    subagent_model: string;
-    subagent_max_concurrency: number;
-    subagents_config: string;
-    mcp_enabled: boolean;
-    mcp_config: string;
-  };
-  type ProfileOption = AiMods & { name: string };
-  type AiConfig = {
-    config_dir: string;
-    provider: string;
-    api_base: string;
-    model: string;
-    model_id: string;
-    context_chars: number;
-    has_api_key: boolean;
-    providers: ProviderOption[];
-    models: ModelOption[];
-    features: Record<string, boolean>;
-    mods: AiMods;
-    active_profile: string;
-    profiles: ProfileOption[];
-    agents: AgentOption[];
-    subagents_registry: SubagentOption[];
-    rtk_available: boolean;
-    ui_scale: number;
-  };
 
   const emptyConfig: AiConfig = {
     config_dir: "",
@@ -1640,89 +1604,50 @@
 </script>
 
 <main class="app">
-  <header class="topbar" data-tauri-drag-region>
-    <div class="brand-mark">
-      <pre class="ascii" aria-label="sandevistan">███████╗ █████╗ ███╗   ██╗██████╗ ███████╗██╗   ██╗██╗███████╗████████╗ █████╗ ███╗   ██╗         █████╗ ██╗
-██╔════╝██╔══██╗████╗  ██║██╔══██╗██╔════╝██║   ██║██║██╔════╝╚══██╔══╝██╔══██╗████╗  ██║        ██╔══██╗██║
-███████╗███████║██╔██╗ ██║██║  ██║█████╗  ██║   ██║██║███████╗   ██║   ███████║██╔██╗ ██║        ███████║██║
-╚════██║██╔══██║██║╚██╗██║██║  ██║██╔══╝  ╚██╗ ██╔╝██║╚════██║   ██║   ██╔══██║██║╚██╗██║        ██╔══██║██║
-███████║██║  ██║██║ ╚████║██████╔╝███████╗ ╚████╔╝ ██║███████║   ██║   ██║  ██║██║ ╚████║███████╗██║  ██║██║
-╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝  ╚═══╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝╚═╝</pre>
-      <span class="app-version">v{appVersion}</span>
-    </div>
-    <div class="header-actions">
-      <div class="top-profile"><SelectBox value={config.active_profile} options={topProfileOptions} onChange={(value) => void switchProfile(value)} /></div>
-      <button class="ghost" type="button" on:click={openMods}>mods</button>
-      <button class="ghost" type="button" on:click={() => void openTerminal()}>term</button>
-      <button class="window-close" type="button" aria-label="close" on:click={closeWindow}>×</button>
-    </div>
-  </header>
+  <AppHeader
+    {appVersion}
+    {config}
+    {topProfileOptions}
+    {switchProfile}
+    {openMods}
+    openTerminal={() => void openTerminal()}
+    {closeWindow}
+  />
 
   <div class="workbench">
-    <aside class="sidebar">
-      <section class="side-section workspace-section">
-        <div class="side-title">workspace</div>
-        <button class="ghost workspace-button" type="button" title={workspace} on:click={() => (showWorkspace = true)}>{workspaceName(workspace)}</button>
-      </section>
-
-      <section class="side-section files-section">
-        <div class="side-tabs">
-          <button class:active={sideTab === "files"} type="button" on:click={() => (sideTab = "files")}>files</button>
-          {#if featureContentSearch}<button class:active={sideTab === "content"} type="button" on:click={() => (sideTab = "content")}>content</button>{/if}
-          {#if featureGit}<button class:active={sideTab === "git"} type="button" on:click={() => (sideTab = "git")}>git</button>{/if}
-        </div>
-
-        {#if sideTab === "files"}
-          <input class="side-search" value={fileQuery} on:input={inputFileQuery} placeholder="search" />
-          {#if fileSearching}<span class="empty-state">searching...</span>{/if}
-          {#if fileSearchTruncated}<span class="empty-state">showing first 500 matches</span>{/if}
-          {#key `${workspace}:${fileTreeVersion}:${searchingFiles ? fileQuery : "tree"}`}
-            <FileTree entries={visibleFiles} expandedPaths={expandedFilePaths} onOpen={openFile} />
-          {/key}
-        {:else if sideTab === "content" && featureContentSearch}
-          <div class="inline-row">
-            <input bind:value={contentQuery} placeholder="rg search" on:keydown={contentSearchKeydown} />
-            <button class="ghost compact" type="button" disabled={contentSearching} on:click={() => void runContentSearch()}>go</button>
-          </div>
-          <div class="compact-list">
-            {#each contentResults as hit (`${hit.path}:${hit.line}:${hit.column}`)}
-              <button class="content-result" type="button" title={`${hit.path}:${hit.line}:${hit.column}\n${hit.text}`} on:click={() => void openSearchHit(hit)}>
-                <div class="result-file">
-                  <span>{fileName(hit.path)}</span>
-                  <small>L{hit.line}:C{hit.column}</small>
-                </div>
-                <div class="result-line">{hit.text.trim() || " "}</div>
-              </button>
-            {:else}
-              <span class="empty-state">{contentQuery.trim() ? "no matches found" : "type query + press Enter"}</span>
-            {/each}
-          </div>
-        {:else if sideTab === "git" && featureGit}
-          <div class="inline-row">
-            <button class="ghost compact" type="button" disabled={gitLoading} on:click={() => void refreshGit()}>status</button>
-            <button class="ghost compact" type="button" disabled={gitLoading} on:click={() => void openGitDiff()}>diff</button>
-          </div>
-          {#if gitStatus}
-            <div class="hint">{gitStatus.branch} · {gitStatus.entries.length} changed</div>
-            <div class="compact-list">
-              {#each gitStatus.entries as entry (entry.raw)}
-                <button class="result-row" type="button" title={entry.raw} on:click={() => void openGitDiff(entry.path)}>
-                  <strong>{entry.status} {entry.path}</strong>
-                </button>
-              {:else}
-                <span class="empty-state">working tree clean</span>
-              {/each}
-            </div>
-          {/if}
-        {/if}
-      </section>
-
-      <section class="side-section sessions-section">
-        <div class="side-title">sessions</div>
-        <input bind:value={sessionQuery} placeholder="search" />
-        <ItemList items={sessionItems} addTitle="+ new session" addSubtitle="empty chat" onAdd={() => void newSession()} />
-      </section>
-    </aside>
+    <AppSidebar
+      {workspace}
+      workspaceTitle={workspaceName(workspace)}
+      showWorkspace={() => (showWorkspace = true)}
+      {sideTab}
+      setSideTab={(tab) => (sideTab = tab)}
+      {featureContentSearch}
+      {featureGit}
+      {fileQuery}
+      {inputFileQuery}
+      {fileSearching}
+      {fileSearchTruncated}
+      fileTreeKey={`${workspace}:${fileTreeVersion}:${searchingFiles ? fileQuery : "tree"}`}
+      {visibleFiles}
+      {expandedFilePaths}
+      {openFile}
+      {contentQuery}
+      setContentQuery={(value) => (contentQuery = value)}
+      {contentSearchKeydown}
+      {contentSearching}
+      runContentSearch={() => void runContentSearch()}
+      {contentResults}
+      openSearchHit={(hit) => void openSearchHit(hit)}
+      {fileName}
+      {gitLoading}
+      refreshGit={() => void refreshGit()}
+      openGitDiff={(path) => void openGitDiff(path)}
+      {gitStatus}
+      {sessionQuery}
+      setSessionQuery={(value) => (sessionQuery = value)}
+      {sessionItems}
+      newSession={() => void newSession()}
+    />
 
     <section class="center">
       <div class="tabbar">
@@ -1762,48 +1687,37 @@
       {/each}
 
       {#if activeTab === "chat" && chatOpen}
-      <section class="chat" aria-label="AI chat">
-        <div class="chat-main">
-          <div class="messages" bind:this={messagesEl}>
-            {#if hiddenMessageGroupCount > 0}
-              <button class="ghost show-earlier" type="button" on:click={showEarlierMessages}>show {Math.min(80, hiddenMessageGroupCount)} earlier ({hiddenMessageGroupCount} hidden)</button>
-            {/if}
-            {#each visibleMessageGroups as group (group.key)}
-              {#if group.kind === "message"}
-                <MessageView role={group.message.role} content={group.message.content} streaming={isStreamingMessage(group)} />
-              {:else}
-                <ToolGroup tools={group.tools} />
-              {/if}
-            {/each}
-          </div>
-          <aside class="stats-card" aria-label="Chat stats">
-            <div class="side-title">stats</div>
-            <div class="stat-row"><span>context</span><strong>{formatContext(contextUsed)} / {formatContext(contextLimit)}</strong></div>
-            <div class="context-bar"><span style={`width:${contextPercent}%`}></span></div>
-            <small>{contextPercent}% used · transcript {formatContext(transcriptUsed)}</small>
-            <div class="stat-row"><span>in / out tokens</span><strong>{formatContext(inputTokens)} | {formatContext(outputTokens)}</strong></div>
-          </aside>
-        </div>
-
-        {#if activeSessionRunning}
-          <div class="running-status" role="status" aria-live="polite"><span class="run-dot" aria-hidden="true"></span>{compacting ? "compacting..." : "running..."}</div>
-        {/if}
-        <form class="prompt-form" on:submit|preventDefault={sendPrompt}>
-          {#if mentionResults.length}
-            <div class="mention-menu">
-              {#each mentionResults as entry, index (entry.path)}
-                <button class:active={index === mentionIndex} type="button" on:mousedown|preventDefault={() => insertMention(entry)}>
-                  <span>{entry.path}</span>
-                </button>
-              {/each}
-            </div>
-          {/if}
-          <textarea bind:this={promptEl} value={prompt} on:beforeinput={rememberPromptSnapshot} on:input={inputPrompt} on:keydown={keydown} rows="4" placeholder="message · @file · Enter = send · Shift+Enter = newline" autocomplete="off"></textarea>
-          <button type="submit" disabled={busy || activeSessionRunning || !prompt.trim()}>send</button>
-          <button class="ghost" type="button" disabled={busy || activeSessionRunning || messages.length < 2} on:click={() => void compactSession()}>compact</button>
-          <button class="ghost danger" type="button" disabled={!activeSessionRunning || compacting} on:click={() => void cancelPrompt()}>abort</button>
-        </form>
-      </section>
+        <ChatPanel
+          messagesEl={messagesEl}
+          setMessagesEl={(element) => (messagesEl = element)}
+          {hiddenMessageGroupCount}
+          {visibleMessageGroups}
+          {showEarlierMessages}
+          {isStreamingMessage}
+          {contextUsed}
+          {contextLimit}
+          {contextPercent}
+          {transcriptUsed}
+          {inputTokens}
+          {outputTokens}
+          {formatContext}
+          {activeSessionRunning}
+          {compacting}
+          promptEl={promptEl}
+          setPromptEl={(element) => (promptEl = element)}
+          {mentionResults}
+          {mentionIndex}
+          {insertMention}
+          {prompt}
+          {rememberPromptSnapshot}
+          {inputPrompt}
+          {keydown}
+          sendPrompt={() => void sendPrompt()}
+          {busy}
+          {messages}
+          compactSession={() => void compactSession()}
+          cancelPrompt={() => void cancelPrompt()}
+        />
       {:else if activeTab === "terminal" && terminalOpen}
         {#if TerminalPaneComponent}
           <svelte:component this={TerminalPaneComponent} id={terminalId} />
