@@ -1,8 +1,4 @@
-use crate::{
-    context,
-    provider::{self, ProviderRuntime},
-    runtime_wire::{NativeMessage, NativeStreamEvent, NativeToolSpec, NativeTurnResult},
-};
+use crate::{context, provider::{self, ProviderRuntime}};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, env, fs, path::PathBuf, sync::OnceLock};
 
@@ -130,34 +126,7 @@ pub struct SubagentOption {
     max_result_chars: usize,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SubagentDef {
-    pub name: String,
-    pub description: Option<String>,
-    pub system: String,
-    pub model: Option<String>,
-    pub max_result_chars: Option<usize>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ModelMods {
-    pub main_model: String,
-    pub main_agent: String,
-    pub subagents: Vec<String>,
-    pub persona: String,
-    pub thinking_level: String,
-    pub prompt_injection: String,
-    pub rtk_enabled: bool,
-    pub shell_enabled: bool,
-    pub git_panel_enabled: bool,
-    pub subagents_enabled: bool,
-    pub subagent_model: String,
-    pub subagent_max_concurrency: usize,
-    pub subagents_config: String,
-    pub mcp_enabled: bool,
-    pub mcp_config: String,
-    pub subagents_registry: Vec<SubagentDef>,
-}
+pub use sandevistan_core::{AgentMods as ModelMods, ChatMessage, SubagentDef};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProfileOption {
@@ -311,11 +280,6 @@ pub struct DeleteSubagentRequest {
     name: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ChatMessage {
-    pub role: String,
-    pub content: String,
-}
 
 pub fn config() -> AiConfig {
     let runtime = runtime_config();
@@ -658,24 +622,15 @@ pub async fn complete_chat(messages: Vec<ChatMessage>) -> Result<String, String>
     provider::complete(runtime, messages).await
 }
 
-pub async fn complete_native_stream_model<F>(
-    messages: Vec<NativeMessage>,
-    tools: Vec<NativeToolSpec>,
-    model: Option<String>,
-    cancellation_token: crate::runtime::CancellationToken,
-    on_event: F,
-) -> Result<NativeTurnResult, String>
-where
-    F: FnMut(NativeStreamEvent),
-{
-    let (runtime, _) = runtime_request_for_model(
+pub fn provider_config_for_model(model: Option<String>) -> Result<ProviderRuntime, String> {
+    runtime_request_for_model(
         vec![ChatMessage {
             role: "user".into(),
             content: "native request".into(),
         }],
         model,
-    )?;
-    provider::complete_native_stream(runtime, messages, tools, cancellation_token, on_event).await
+    )
+    .map(|(runtime, _)| runtime)
 }
 
 pub fn prompt_config() -> context::PromptConfig {
@@ -684,34 +639,6 @@ pub fn prompt_config() -> context::PromptConfig {
 
 pub fn active_mods() -> ModelMods {
     runtime_config().mods
-}
-
-pub fn mods_prompt() -> String {
-    let mods = active_mods();
-    let mut lines = Vec::new();
-    if !mods.persona.trim().is_empty() {
-        lines.push(format!(
-            "Persona override: {}",
-            compact_line(&mods.persona, 1_200)
-        ));
-    }
-    if mods.thinking_level != DEFAULT_THINKING_LEVEL {
-        lines.push(format!(
-            "Thinking level: {}. Keep reasoning internal; answer concise.",
-            mods.thinking_level
-        ));
-    }
-    if !mods.prompt_injection.trim().is_empty() {
-        lines.push(format!(
-            "User instruction: {}",
-            compact_line(&mods.prompt_injection, 2_000)
-        ));
-    }
-    if lines.is_empty() {
-        String::new()
-    } else {
-        format!("Model mods:\n{}", lines.join("\n"))
-    }
 }
 
 fn runtime_request(
@@ -1207,14 +1134,6 @@ fn normalized_profiles(app: &AppConfig) -> HashMap<String, ProfileConfig> {
         mcp_config: None,
     });
     profiles
-}
-
-fn compact_line(value: &str, max: usize) -> String {
-    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    if compact.chars().count() <= max {
-        return compact;
-    }
-    compact.chars().take(max).collect()
 }
 
 fn rtk_available() -> bool {

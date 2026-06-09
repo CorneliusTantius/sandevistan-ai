@@ -585,29 +585,40 @@ async fn run_native_agent_loop(
         emit_agent_event(&event_app, &event_session_id, &event_stream_started, event);
     });
 
+    crate::extensions::hook_bus(workspace).emit(crate::extensions::hooks::HookEvent::AgentStart);
+    let provider = ai::provider_config_for_model(Some(mods.main_model.clone())).map_err(|error| AgentLoopError {
+        message: error,
+        messages: messages.clone(),
+    })?;
     let runtime = crate::runtime::AgentRuntime::new();
     let result = runtime
         .run(crate::runtime::AgentRuntimeConfig {
-            workspace: workspace.clone(),
             session_id: session_id.to_string(),
             messages,
-            mods,
+            mods: mods.clone(),
             prompt_config,
             summary: Some(summary),
             system_prompt: None,
-            model: None,
+            provider,
             read_only: false,
             delegate_depth_remaining: 2,
             budgets: crate::runtime::AgentBudgets::default(),
             cancellation_token,
+            tool_host: crate::runtime::AppToolHost::new(workspace.clone(), mods),
             on_event,
         })
         .await
-        .map_err(|error| AgentLoopError {
-            message: error.message,
-            messages: error.messages,
+        .map_err(|error| {
+            crate::extensions::hook_bus(workspace).emit(crate::extensions::hooks::HookEvent::Error {
+                message: error.message.clone(),
+            });
+            AgentLoopError {
+                message: error.message,
+                messages: error.messages,
+            }
         })?;
 
+    crate::extensions::hook_bus(workspace).emit(crate::extensions::hooks::HookEvent::AgentEnd);
     Ok(result.messages)
 }
 

@@ -2926,13 +2926,14 @@ dependencies = [
 
 [[package]]
 name = "sandevistan"
-version = "1.6.0"
+version = "1.7.0"
 dependencies = [
  "dirs 5.0.1",
  "ignore",
  "notify",
  "portable-pty",
  "reqwest 0.12.28",
+ "sandevistan-core",
  "serde",
  "serde_json",
  "tauri",
@@ -2940,6 +2941,16 @@ dependencies = [
  "tauri-plugin-dialog",
  "tokio",
  "toml 0.8.23",
+]
+
+[[package]]
+name = "sandevistan-core"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

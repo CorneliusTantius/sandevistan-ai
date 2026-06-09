@@ -65,7 +65,7 @@ pub(crate) fn run_delegate_depth(
                 let workspace = workspace.clone();
                 let defs = defs.clone();
                 let mods = mods.clone();
-                handles.push(tauri::async_runtime::spawn(async move {
+                handles.push(tokio::spawn(async move {
                     if batch_index > 0 {
                         tokio::time::sleep(SUBAGENT_STAGGER * batch_index as u32).await;
                     }
@@ -172,26 +172,27 @@ async fn run_one_inner(
     let mut subagent_mods = mods.clone();
     subagent_mods.subagents_enabled = subagents_available;
 
+    let provider = crate::ai::provider_config_for_model(model)?;
     let runtime = crate::runtime::AgentRuntime::new();
     let result = runtime
         .run(crate::runtime::AgentRuntimeConfig {
-            workspace,
             session_id: format!("subagent-{}", def.name),
             messages: vec![ChatMessage {
                 role: "user".into(),
                 content: format!("Task:\n{task_text}"),
             }],
-            mods: subagent_mods,
+            mods: subagent_mods.clone(),
             prompt_config: crate::context::PromptConfig::from_context_chars(40_000),
             summary: None,
             system_prompt: Some(system),
-            model,
+            provider,
             read_only: false,
             delegate_depth_remaining: depth_remaining,
             budgets: crate::runtime::AgentBudgets {
                 tool_timeout: TOOL_TIMEOUT,
             },
             cancellation_token: crate::runtime::CancellationToken::new(),
+            tool_host: crate::runtime::AppToolHost::new(workspace, subagent_mods),
             on_event: std::sync::Arc::new(|_event| {}),
         })
         .await
