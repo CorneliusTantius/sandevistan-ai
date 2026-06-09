@@ -20,8 +20,8 @@ Project name is referenced after cyberpunk 2077's sandevistan chrome that activa
 | Platform | Command |
 |---|---|
 | Arch / Linux tar | <code>curl -fsSL https://raw.githubusercontent.com/CorneliusTantius/sandevistan-ai/main/docs/scripts/install-arch-native.sh &#124; sh</code> |
-| Debian / Ubuntu | <code>curl -fsSL https://raw.githubusercontent.com/CorneliusTantius/sandevistan-ai/main/install-debian-ubuntu.sh &#124; sh</code> |
-| Fedora / RHEL | <code>curl -fsSL https://raw.githubusercontent.com/CorneliusTantius/sandevistan-ai/main/install-fedora.sh &#124; sh</code> |
+| Debian / Ubuntu | <code>curl -fsSL https://raw.githubusercontent.com/CorneliusTantius/sandevistan-ai/main/docs/scripts/install-debian-ubuntu.sh &#124; sh</code> |
+| Fedora / RHEL | <code>curl -fsSL https://raw.githubusercontent.com/CorneliusTantius/sandevistan-ai/main/docs/scripts/install-fedora.sh &#124; sh</code> |
 | Windows | Download installer from latest release. |
 | macOS Intel / Apple Silicon | <code>curl -fsSL https://raw.githubusercontent.com/CorneliusTantius/sandevistan-ai/main/docs/scripts/install-macos.sh &#124; sh</code> |
 
