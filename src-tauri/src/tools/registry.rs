@@ -1,5 +1,4 @@
-use crate::ai;
-use sandevistan_core::NativeToolSpec;
+use sandevistan_core::{AgentMods, NativeToolSpec};
 use std::path::Path;
 
 use super::{
@@ -69,7 +68,7 @@ impl ToolRegistry {
     pub fn validate(
         &self,
         call: ToolCall,
-        mods: &ai::ModelMods,
+        mods: &AgentMods,
     ) -> Result<ValidatedToolCall, String> {
         validate_tool_call(call, mods, self.read_only)
     }
@@ -111,7 +110,7 @@ fn run_result(workspace: &Path, call: &ToolCall, options: ToolOptions) -> ToolRu
 
 pub fn validate_tool_call(
     call: ToolCall,
-    mods: &ai::ModelMods,
+    mods: &AgentMods,
     read_only: bool,
 ) -> Result<ValidatedToolCall, String> {
     let entry = find_tool_entry(&call.name).ok_or_else(|| format!("unknown tool: {}", call.name))?;

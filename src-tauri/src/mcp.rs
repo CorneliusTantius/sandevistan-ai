@@ -1,5 +1,5 @@
-use crate::{ai, tools::ToolCall};
-use sandevistan_core::NativeToolSpec;
+use crate::tools::ToolCall;
+use sandevistan_core::{AgentMods, NativeToolSpec};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{collections::HashMap, path::Path, time::Duration};
@@ -58,7 +58,7 @@ pub fn tool_specs() -> Vec<NativeToolSpec> {
     ]
 }
 
-pub fn validate_tool_call(call: &ToolCall, mods: &ai::ModelMods) -> Result<(), String> {
+pub fn validate_tool_call(call: &ToolCall, mods: &AgentMods) -> Result<(), String> {
     if !mods.mcp_enabled {
         return Err("MCP disabled for this profile".into());
     }

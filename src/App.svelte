@@ -1,19 +1,22 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { api } from "./lib/api";
+  import { defaultAgentDraft, defaultExtensionDraft, defaultExtensionsInfo, defaultMcpDraft, defaultModelDraft, baseMods, defaultProviderDraft, defaultSubagentDraft, emptyConfig } from "./lib/defaults";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open } from "@tauri-apps/plugin-dialog";
-  import Checkbox from "./components/Checkbox.svelte";
-  import AppHeader from "./components/AppHeader.svelte";
-  import AppSidebar from "./components/AppSidebar.svelte";
-  import ChatPanel from "./components/ChatPanel.svelte";
-  import type { DiffTab } from "./components/DiffPane.svelte";
-  import type { OpenFile } from "./components/EditorPane.svelte";
-  import { type FileEntry } from "./components/FileTree.svelte";
-  import ItemList, { type Item } from "./components/ItemList.svelte";
-  import Modal from "./components/Modal.svelte";
-  import SelectBox, { type SelectOption } from "./components/SelectBox.svelte";
+  import Checkbox from "./components/ui/Checkbox.svelte";
+  import AppHeader from "./panels/AppHeader.svelte";
+  import AppSidebar from "./panels/AppSidebar.svelte";
+  import ChatPanel from "./panels/ChatPanel.svelte";
+  import type { DiffTab } from "./panels/DiffPane.svelte";
+  import type { OpenFile } from "./panels/EditorPane.svelte";
+  import ItemList, { type Item } from "./components/ui/ItemList.svelte";
+  import Modal from "./components/ui/Modal.svelte";
+  import RenameModal from "./panels/modals/RenameModal.svelte";
+  import WorkspaceModal from "./panels/modals/WorkspaceModal.svelte";
+  import SelectBox, { type SelectOption } from "./components/ui/SelectBox.svelte";
   import type {
     AgentOption,
     AiConfig,
@@ -22,6 +25,7 @@
     ExtensionsInfo,
     ExtensionInfo,
     FileChangedEvent,
+    FileEntry,
     GitStatus,
     McpServer,
     McpServerDraft,
@@ -40,26 +44,6 @@
   } from "./types";
 
   const appVersion = import.meta.env.PACKAGE_VERSION ?? "dev";
-
-  const emptyConfig: AiConfig = {
-    config_dir: "",
-    provider: "openai",
-    api_base: "https://api.openai.com/v1",
-    model: "gpt-4o-mini",
-    model_id: "gpt-4o-mini",
-    context_chars: 80000,
-    has_api_key: false,
-    providers: [],
-    models: [],
-    features: { content_search: true, git: true, file_watcher: true },
-    mods: { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "", mcp_enabled: false, mcp_config: "" },
-    active_profile: "default",
-    profiles: [{ name: "default", main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "", mcp_enabled: false, mcp_config: "" }],
-    agents: [{ name: "custom", description: "Default main agent", persona: "", thinking_level: "auto", prompt_injection: "" }],
-    subagents_registry: [],
-    rtk_available: false,
-    ui_scale: 1,
-  };
 
   let modelLabel = "model";
   let prompt = "";
@@ -130,21 +114,21 @@
   let config: AiConfig = emptyConfig;
   let uiScale = 1;
   let providerChoice = "openai";
-  let draft = { provider: "openai", model: "gpt-4o-mini", original_model: "", context_chars: 80000 };
-  let providerDraft = { name: "openai", original_name: "", kind: "openai-compatible", api_base: "https://api.openai.com/v1", api_key_header: "authorization", api_key: "" };
-  let modsDraft: AiMods = { main_model: "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: true, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "", mcp_enabled: false, mcp_config: "" };
+  let draft = { ...defaultModelDraft };
+  let providerDraft = { ...defaultProviderDraft };
+  let modsDraft: AiMods = { ...baseMods };
   let modsProfile = "default";
   let modsTab: "general" | "profile" | "providers" | "models" | "agents" | "subagents" | "mcp" | "extensions" = "profile";
   let addingAgent = false;
   let addingSubagent = false;
   let editingExtension = false;
   let editingMcp = false;
-  let mcpDraft: McpServerDraft = { name: "", original_name: "", command: "", args: "", timeout_ms: 8000, env: "" };
-  let agentDraft = { name: "", original_name: "", description: "", persona: "", thinking_level: "auto" as ThinkingLevel, prompt_injection: "" };
-  let subagentDraft = { name: "", original_name: "", description: "", system: "", model: "", max_result_chars: 4000 };
-  let extensionDraft: ExtensionInfo = { id: "", name: "", enabled: false, removable: true, description: "", hooks: [], tools: [] };
+  let mcpDraft: McpServerDraft = { ...defaultMcpDraft };
+  let agentDraft = { ...defaultAgentDraft };
+  let subagentDraft = { ...defaultSubagentDraft };
+  let extensionDraft: ExtensionInfo = { ...defaultExtensionDraft };
   let creatingExtension = false;
-  let extensionsInfo: ExtensionsInfo = { config_path: "", extensions: [] };
+  let extensionsInfo: ExtensionsInfo = { ...defaultExtensionsInfo };
   $: providerOptions = [
     ...config.providers.map((provider): SelectOption => ({ value: provider.name, label: provider.name })),
   ];
@@ -312,15 +296,15 @@
   }
 
   async function ensureEditorPane() {
-    EditorPaneComponent ??= (await import("./components/EditorPane.svelte")).default;
+    EditorPaneComponent ??= (await import("./panels/EditorPane.svelte")).default;
   }
 
   async function ensureDiffPane() {
-    DiffPaneComponent ??= (await import("./components/DiffPane.svelte")).default;
+    DiffPaneComponent ??= (await import("./panels/DiffPane.svelte")).default;
   }
 
   async function ensureTerminalPane() {
-    TerminalPaneComponent ??= (await import("./components/TerminalPane.svelte")).default;
+    TerminalPaneComponent ??= (await import("./panels/TerminalPane.svelte")).default;
   }
 
   function estimateTokenCount(text: string) {
@@ -487,7 +471,8 @@
     } else if (event.kind === "error") {
       flushStreamNow();
       streamMessageOpen = false;
-      addMessage("error", event.content ?? "stream error");
+      const content = event.debug ? `${event.content ?? "stream error"}\n\n\`\`\`text\n${event.debug}\n\`\`\`` : event.content ?? "stream error";
+      addMessage("error", content);
     } else if (event.kind === "done") {
       flushStreamNow();
       streamMessageOpen = false;
@@ -668,7 +653,7 @@
 
   async function loadExtensionsInfo() {
     try {
-      extensionsInfo = await invoke<ExtensionsInfo>("extensions_info");
+      extensionsInfo = await api.extensionsInfo();
     } catch (error) {
       addMessage("error", String(error));
       extensionsInfo = { config_path: "", extensions: [] };
@@ -1002,7 +987,7 @@
   }
 
   async function loadConfig() {
-    config = await invoke<AiConfig>("ai_config");
+    config = await api.aiConfig();
     setConfigDraft(config);
     modelLabel = `${config.active_profile} · ${config.model_id}`;
     await syncFileWatcher();
@@ -1015,8 +1000,8 @@
 
   async function syncFileWatcher() {
     try {
-      if (config.features?.file_watcher ?? false) await invoke("file_watch_start");
-      else await invoke("file_watch_stop");
+      if (config.features?.file_watcher ?? false) await api.fileWatchStart();
+      else await api.fileWatchStop();
     } catch (error) {
       addMessage("error", String(error));
     }
@@ -1061,7 +1046,7 @@
 
   async function loadSession() {
     const previousMutations = toolMutationCount;
-    const session = await invoke<SessionInfo>("chat_session");
+    const session = await api.chatSession();
     const nextMutations = mutationCount(session.messages);
     setSession(session);
     toolMutationCount = nextMutations;
@@ -1069,7 +1054,7 @@
   }
 
   async function loadFiles() {
-    files = await invoke<FileEntry[]>("workspace_tree");
+    files = await api.workspaceTree();
     fileSearchResults = [];
     fileSearchTruncated = false;
     expandedDirs = new Set();
@@ -1140,7 +1125,7 @@
   async function refreshGit() {
     gitLoading = true;
     try {
-      gitStatus = await invoke<GitStatus>("git_status");
+      gitStatus = await api.gitStatus();
       gitDiff = "";
       gitDiffPath = "";
     } catch (error) {
@@ -1387,7 +1372,7 @@
   }
 
   async function newSession() {
-    setSession(await invoke<SessionInfo>("chat_new_session"));
+    setSession(await api.chatNewSession());
     openChatTab();
   }
 
@@ -1455,7 +1440,7 @@
     compacting = true;
     addMessage("assistant", "Compacting session...");
     try {
-      setSession(await invoke<SessionInfo>("chat_compact"));
+      setSession(await api.chatCompact());
     } catch (error) {
       addMessage("error", String(error));
     } finally {
@@ -1465,7 +1450,7 @@
 
   async function cancelPrompt() {
     try {
-      setSession(await invoke<SessionInfo>("chat_cancel"));
+      setSession(await api.chatCancel());
     } catch (error) {
       addMessage("error", String(error));
     }
@@ -1611,7 +1596,7 @@
       if (fileChangeTimer) window.clearTimeout(fileChangeTimer);
       if (fileSearchTimer) window.clearTimeout(fileSearchTimer);
       window.removeEventListener("keydown", globalKeydown);
-      void invoke("file_watch_stop");
+      void api.fileWatchStop();
       unlistenChat?.();
       unlistenFiles?.();
     };
@@ -1752,43 +1737,28 @@
     </section>
   </div>
 
-  {#if showWorkspace}
-    <Modal title="Workspace" onClose={() => (showWorkspace = false)}>
-      {#if !addingWorkspace}
-        <ItemList
-          items={workspaceItems}
-          addTitle="+ add workspace"
-          addSubtitle="directory"
-          onAdd={() => { addingWorkspace = true; workspaceDraft = workspace; }}
-        />
-      {:else}
-        <label>
-          Path
-          <div class="inline-row">
-            <input bind:value={workspaceDraft} placeholder="~/code/project" />
-            <button class="ghost compact" type="button" on:click={() => void chooseWorkspaceFolder()}>browse</button>
-          </div>
-        </label>
-        <div class="actions right">
-          <button class="ghost" type="button" on:click={() => (addingWorkspace = false)}>back</button>
-          <button type="button" disabled={busy || !workspaceDraft.trim()} on:click={() => void selectWorkspace(workspaceDraft)}>save workspace</button>
-        </div>
-      {/if}
-    </Modal>
-  {/if}
+  <WorkspaceModal
+    open={showWorkspace}
+    adding={addingWorkspace}
+    items={workspaceItems}
+    draft={workspaceDraft}
+    {busy}
+    onClose={() => (showWorkspace = false)}
+    onStartAdd={() => { addingWorkspace = true; workspaceDraft = workspace; }}
+    onBack={() => (addingWorkspace = false)}
+    onBrowse={() => void chooseWorkspaceFolder()}
+    onDraftChange={(value) => (workspaceDraft = value)}
+    onSave={(path) => void selectWorkspace(path)}
+  />
 
-  {#if renameSessionId}
-    <Modal title="Rename" onClose={() => (renameSessionId = "")}>
-      <label>
-        Title
-        <input bind:value={renameDraft} placeholder="session title" />
-      </label>
-      <div class="actions right">
-        <button class="ghost" type="button" on:click={() => (renameSessionId = "")}>back</button>
-        <button type="button" disabled={busy || !renameDraft.trim()} on:click={() => void renameSession()}>save</button>
-      </div>
-    </Modal>
-  {/if}
+  <RenameModal
+    open={!!renameSessionId}
+    value={renameDraft}
+    {busy}
+    onClose={() => (renameSessionId = "")}
+    onValueChange={(value) => (renameDraft = value)}
+    onSave={() => void renameSession()}
+  />
 
   {#if showMods}
     <Modal title="Mods" fixed onClose={() => (showMods = false)}>

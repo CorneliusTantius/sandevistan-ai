@@ -1,34 +1,34 @@
-use crate::ai;
+use sandevistan_core::AgentMods;
 use serde_json::Value;
 
-pub(crate) fn validate_noop(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+pub(crate) fn validate_noop(args: &Value, _: &AgentMods) -> Result<(), String> {
     ensure_no_extra_args(args, &[])
 }
 
-pub(crate) fn validate_fs_list(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+pub(crate) fn validate_fs_list(args: &Value, _: &AgentMods) -> Result<(), String> {
     ensure_no_extra_args(args, &["path"])?;
     optional_string(args, "path")
 }
 
-pub(crate) fn validate_fs_read(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+pub(crate) fn validate_fs_read(args: &Value, _: &AgentMods) -> Result<(), String> {
     ensure_no_extra_args(args, &["path"])?;
     required_string(args, "path")
 }
 
-pub(crate) fn validate_fs_edit(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+pub(crate) fn validate_fs_edit(args: &Value, _: &AgentMods) -> Result<(), String> {
     ensure_no_extra_args(args, &["path", "old", "new"])?;
     required_string(args, "path")?;
     required_string(args, "old")?;
     required_string(args, "new")
 }
 
-pub(crate) fn validate_fs_write(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+pub(crate) fn validate_fs_write(args: &Value, _: &AgentMods) -> Result<(), String> {
     ensure_no_extra_args(args, &["path", "content"])?;
     required_string(args, "path")?;
     required_string(args, "content")
 }
 
-pub(crate) fn validate_search_rg(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+pub(crate) fn validate_search_rg(args: &Value, _: &AgentMods) -> Result<(), String> {
     ensure_no_extra_args(args, &["query", "path", "case_sensitive", "max_results"])?;
     required_string(args, "query")?;
     optional_string(args, "path")?;
@@ -36,18 +36,18 @@ pub(crate) fn validate_search_rg(args: &Value, _: &ai::ModelMods) -> Result<(), 
     optional_integer(args, "max_results")
 }
 
-pub(crate) fn validate_git_diff(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+pub(crate) fn validate_git_diff(args: &Value, _: &AgentMods) -> Result<(), String> {
     ensure_no_extra_args(args, &["path"])?;
     optional_string(args, "path")
 }
 
-pub(crate) fn validate_shell_run(args: &Value, _: &ai::ModelMods) -> Result<(), String> {
+pub(crate) fn validate_shell_run(args: &Value, _: &AgentMods) -> Result<(), String> {
     ensure_no_extra_args(args, &["command", "timeout_secs"])?;
     required_string(args, "command")?;
     optional_integer(args, "timeout_secs")
 }
 
-pub(crate) fn validate_agent_delegate(args: &Value, mods: &ai::ModelMods) -> Result<(), String> {
+pub(crate) fn validate_agent_delegate(args: &Value, mods: &AgentMods) -> Result<(), String> {
     ensure_no_extra_args(args, &["tasks"])?;
     validate_delegate_tasks(args, mods)
 }
@@ -91,7 +91,7 @@ fn optional_integer(args: &Value, key: &str) -> Result<(), String> {
     }
 }
 
-fn validate_delegate_tasks(args: &Value, mods: &ai::ModelMods) -> Result<(), String> {
+fn validate_delegate_tasks(args: &Value, mods: &AgentMods) -> Result<(), String> {
     let tasks = args
         .get("tasks")
         .and_then(Value::as_array)

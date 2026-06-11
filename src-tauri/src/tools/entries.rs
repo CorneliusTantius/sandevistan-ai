@@ -1,12 +1,11 @@
-use crate::ai;
-use sandevistan_core::NativeToolSpec;
+use sandevistan_core::{AgentMods, NativeToolSpec};
 use serde_json::Value;
 use std::path::Path;
 
 use super::{executors, schema, validation, ToolOptions};
 
 type ToolExecutor = fn(&Path, &Value, ToolOptions) -> Result<String, String>;
-type ToolValidator = fn(&Value, &ai::ModelMods) -> Result<(), String>;
+type ToolValidator = fn(&Value, &AgentMods) -> Result<(), String>;
 type ToolParameters = fn(&[String]) -> Value;
 
 #[derive(Debug, Clone, Copy)]

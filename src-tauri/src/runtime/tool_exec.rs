@@ -1,4 +1,4 @@
-use crate::{ai, extensions, mcp, subagent, tools};
+use crate::{extensions, mcp, subagent, tools};
 use sandevistan_core::{
     tools::{ToolFuture, ToolHost, ToolRequest},
     AgentMods, NativeToolSpec,
@@ -73,7 +73,7 @@ async fn execute_tool(
     workspace: PathBuf,
     session_id: String,
     call: tools::ToolCall,
-    mods: ai::ModelMods,
+    mods: AgentMods,
     read_only: bool,
     delegate_depth_remaining: usize,
 ) -> String {
@@ -105,7 +105,7 @@ async fn execute_tool(
 
 fn validate_or_accept_extension(
     call: tools::ToolCall,
-    mods: &ai::ModelMods,
+    mods: &AgentMods,
     read_only: bool,
 ) -> Result<tools::ToolCall, String> {
     if extensions::is_extension_tool(&call.name) {
@@ -119,7 +119,7 @@ fn apply_before_hooks(
     workspace: &PathBuf,
     display_name: &str,
     call: &mut tools::ToolCall,
-    mods: &ai::ModelMods,
+    mods: &AgentMods,
     read_only: bool,
 ) -> Result<(), String> {
     let mut modified = false;
@@ -152,7 +152,7 @@ async fn dispatch_tool(
     workspace: PathBuf,
     session_id: String,
     call: tools::ToolCall,
-    mods: ai::ModelMods,
+    mods: AgentMods,
     delegate_depth_remaining: usize,
 ) -> String {
     if mcp::is_mcp_tool(&call.name) {
@@ -177,7 +177,7 @@ fn normalize_tool_call(mut call: tools::ToolCall) -> tools::ToolCall {
 
 fn validate_tool_call(
     call: tools::ToolCall,
-    mods: &ai::ModelMods,
+    mods: &AgentMods,
     read_only: bool,
 ) -> Result<tools::ValidatedToolCall, String> {
     if mcp::is_mcp_tool(&call.name) {
@@ -210,7 +210,7 @@ async fn run_builtin_tool(
     workspace: PathBuf,
     session_id: String,
     call: tools::ToolCall,
-    mods: ai::ModelMods,
+    mods: AgentMods,
     delegate_depth_remaining: usize,
 ) -> String {
     if subagent::is_delegate(&call) {

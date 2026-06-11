@@ -1,8 +1,8 @@
 use crate::{
-    ai::{ChatMessage, ModelMods, SubagentDef},
+    ai::{ChatMessage, SubagentDef},
     tools::{self, ToolCall},
 };
-use sandevistan_core::PromptConfig;
+use sandevistan_core::{AgentMods, PromptConfig};
 use serde::Deserialize;
 use serde_json::Value;
 use std::{future::Future, path::PathBuf, pin::Pin, time::Duration};
@@ -33,7 +33,7 @@ pub fn is_delegate(call: &ToolCall) -> bool {
 pub(crate) fn run_delegate_depth(
     workspace: PathBuf,
     args: Value,
-    mods: ModelMods,
+    mods: AgentMods,
     rtk_enabled: bool,
     depth_remaining: usize,
 ) -> Pin<Box<dyn Future<Output = String> + Send>> {
@@ -100,7 +100,7 @@ async fn run_one(
     workspace: PathBuf,
     defs: Vec<SubagentDef>,
     task: DelegateTask,
-    mods: ModelMods,
+    mods: AgentMods,
     rtk_enabled: bool,
     depth_remaining: usize,
 ) -> String {
@@ -142,7 +142,7 @@ async fn run_one_inner(
     workspace: PathBuf,
     def: &SubagentDef,
     task: &DelegateTask,
-    mods: &ModelMods,
+    mods: &AgentMods,
     _rtk_enabled: bool,
     depth_remaining: usize,
 ) -> Result<String, String> {
@@ -209,7 +209,7 @@ async fn run_one_inner(
         .ok_or_else(|| "subagent returned no assistant content".into())
 }
 
-fn configured_subagent_defs(mods: &ModelMods) -> (Vec<SubagentDef>, Option<String>) {
+fn configured_subagent_defs(mods: &AgentMods) -> (Vec<SubagentDef>, Option<String>) {
     let defs = filter_defs(mods.subagents_registry.clone(), &mods.subagents);
     if !defs.is_empty() || mods.subagents.is_empty() {
         return (defs, None);

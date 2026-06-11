@@ -1,5 +1,6 @@
 export type Role = "user" | "assistant" | "tool" | "error";
 export type SearchHit = { path: string; line: number; column: number; text: string };
+export type FileEntry = { name: string; path: string; kind: "dir" | "file"; depth: number };
 export type GitStatusEntry = { path: string; status: string; raw: string };
 export type GitStatus = { branch: string; entries: GitStatusEntry[] };
 export type Message = { role: Role; content: string };
@@ -8,7 +9,7 @@ export type MessageGroup = { key: string; kind: "message"; message: Message } | 
 export type WorkspaceOption = { path: string; name: string; deletable: boolean };
 export type SessionOption = { id: string; title: string; preview: string; message_count: number; updated_at: number; running: boolean };
 export type SessionInfo = { workspace: string; active_session_id: string; messages: Message[]; sessions: SessionOption[]; workspaces: WorkspaceOption[] };
-export type ChatStreamEvent = { id?: string; session_id: string; kind: "start" | "delta" | "tool" | "done" | "error" | "usage"; role?: Role; text?: string; content?: string; input_tokens?: number; output_tokens?: number; total_tokens?: number };
+export type ChatStreamEvent = { id?: string; session_id: string; kind: "start" | "delta" | "tool" | "done" | "error" | "usage"; role?: Role; text?: string; content?: string; debug?: string; input_tokens?: number; output_tokens?: number; total_tokens?: number };
 export type FileChangedEvent = { workspace: string; paths: string[] };
 export type ProviderOption = { name: string; kind: string; api_base: string; api_key_header: string; has_api_key: boolean };
 export type ModelOption = { name: string; provider: string; id: string; context_chars: number };
