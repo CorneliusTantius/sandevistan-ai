@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from "svelte";
 
   export let title = "";
+  export let fixed = false;
   export let onClose: () => void = () => {};
 
   function keydown(event: KeyboardEvent) {
@@ -15,7 +16,7 @@
 </script>
 
 <div class="backdrop" role="presentation" on:click={onClose}>
-  <div class="modal" role="dialog" aria-modal="true" aria-label={title} tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+  <div class="modal" class:fixed role="dialog" aria-modal="true" aria-label={title} tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
     <header>
       <h2>{title}</h2>
       <button class="ghost" type="button" on:click={onClose}>close</button>
@@ -45,8 +46,15 @@
     gap: 12px;
     padding: 14px;
     color: var(--text);
-    border: 1px solid var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
     background: var(--panel);
+  }
+
+  .modal.fixed {
+    width: min(50vw, calc(100vw - 28px));
+    height: min(50vh, calc(100vh - 28px));
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
   header {
@@ -55,6 +63,6 @@
     justify-content: space-between;
     gap: 12px;
     padding-bottom: 8px;
-    border-bottom: 1px solid var(--panel);
+    border-bottom: 1px solid var(--border);
   }
 </style>

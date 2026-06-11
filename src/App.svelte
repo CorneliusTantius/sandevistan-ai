@@ -593,11 +593,13 @@
 
   function insertMention(entry: FileEntry) {
     if (!promptEl || mentionStart < 0) return;
+    const start = mentionStart;
     const end = promptEl.selectionStart;
-    prompt = `${prompt.slice(0, mentionStart)}@${entry.path} ${prompt.slice(end)}`;
+    const nextPrompt = `${prompt.slice(0, start)}@${entry.path} ${prompt.slice(end)}`;
+    const pos = start + entry.path.length + 2;
+    prompt = nextPrompt;
     closeMention();
     requestAnimationFrame(() => {
-      const pos = mentionStart + entry.path.length + 2;
       promptEl.focus();
       promptEl.setSelectionRange(pos, pos);
     });
@@ -1557,6 +1559,13 @@
   function globalKeydown(event: KeyboardEvent) {
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
     const key = event.key.toLowerCase();
+
+    if (key === "w") {
+      event.preventDefault();
+      if (activeSessionId && !busy) void deleteSession(activeSessionId);
+      return;
+    }
+
     if (key !== "+" && key !== "=" && key !== "-" && key !== "_") return;
     event.preventDefault();
     const delta = key === "-" || key === "_" ? -0.05 : 0.05;
@@ -1564,6 +1573,7 @@
   }
 
   $: if (messages.length) void scrollChatToBottom();
+  $: if (activeTab === "chat" && chatOpen) void scrollChatToBottom();
 
   onMount(() => {
     let unlistenChat: UnlistenFn | undefined;
@@ -1776,7 +1786,7 @@
   {/if}
 
   {#if showMods}
-    <Modal title="Mods" onClose={() => (showMods = false)}>
+    <Modal title="Mods" fixed onClose={() => (showMods = false)}>
       <div class="mods-layout">
         <nav class="mods-nav" aria-label="mods sections">
           <button class:active={modsTab === "general"} class="ghost" type="button" on:click={() => (modsTab = "general")}>general</button>

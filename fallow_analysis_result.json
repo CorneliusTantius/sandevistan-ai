@@ -1,0 +1,1330 @@
+{
+  "kind": "combined",
+  "schema_version": 7,
+  "version": "2.88.2",
+  "elapsed_ms": 61,
+  "check": {
+    "schema_version": 7,
+    "version": "2.88.2",
+    "elapsed_ms": 49,
+    "total_issues": 1,
+    "entry_points": {
+      "total": 3,
+      "sources": {
+        "default_index": 1,
+        "plugin": 2
+      }
+    },
+    "summary": {
+      "total_issues": 1,
+      "unused_files": 0,
+      "unused_exports": 0,
+      "unused_types": 0,
+      "private_type_leaks": 0,
+      "unused_dependencies": 0,
+      "unused_enum_members": 0,
+      "unused_class_members": 0,
+      "unresolved_imports": 0,
+      "unlisted_dependencies": 0,
+      "duplicate_exports": 1,
+      "type_only_dependencies": 0,
+      "test_only_dependencies": 0,
+      "circular_dependencies": 0,
+      "re_export_cycles": 0,
+      "boundary_violations": 0,
+      "stale_suppressions": 0,
+      "unused_catalog_entries": 0,
+      "empty_catalog_groups": 0,
+      "unresolved_catalog_references": 0,
+      "unused_dependency_overrides": 0,
+      "misconfigured_dependency_overrides": 0
+    },
+    "unused_files": [],
+    "unused_exports": [],
+    "unused_types": [],
+    "private_type_leaks": [],
+    "unused_dependencies": [],
+    "unused_dev_dependencies": [],
+    "unused_optional_dependencies": [],
+    "unused_enum_members": [],
+    "unused_class_members": [],
+    "unresolved_imports": [],
+    "unlisted_dependencies": [],
+    "duplicate_exports": [
+      {
+        "export_name": "onChange",
+        "locations": [
+          {
+            "path": "src/components/Checkbox.svelte",
+            "line": 5,
+            "col": 13
+          },
+          {
+            "path": "src/components/EditorPane.svelte",
+            "line": 33,
+            "col": 13
+          },
+          {
+            "path": "src/components/SelectBox.svelte",
+            "line": 8,
+            "col": 13
+          }
+        ],
+        "actions": [
+          {
+            "type": "add-to-config",
+            "auto_fixable": false,
+            "description": "Add an ignoreExports rule so these files are excluded from duplicate-export grouping (use when this duplication is an intentional namespace-barrel API).",
+            "config_key": "ignoreExports",
+            "value": [
+              {
+                "file": "src/components/Checkbox.svelte",
+                "exports": [
+                  "*"
+                ]
+              },
+              {
+                "file": "src/components/EditorPane.svelte",
+                "exports": [
+                  "*"
+                ]
+              },
+              {
+                "file": "src/components/SelectBox.svelte",
+                "exports": [
+                  "*"
+                ]
+              }
+            ],
+            "value_schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json#/properties/ignoreExports"
+          },
+          {
+            "type": "remove-duplicate",
+            "auto_fixable": false,
+            "description": "Keep one canonical export location and remove the others",
+            "note": "If every location is the sole `index.*` of its directory, this is likely an intentional namespace-barrel API. Prefer adding these files to `ignoreExports` over removing exports."
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the line",
+            "comment": "// fallow-ignore-next-line duplicate-export",
+            "scope": "per-location"
+          }
+        ]
+      }
+    ],
+    "type_only_dependencies": [],
+    "test_only_dependencies": [],
+    "circular_dependencies": [],
+    "re_export_cycles": [],
+    "boundary_violations": [],
+    "stale_suppressions": [],
+    "unused_catalog_entries": [],
+    "empty_catalog_groups": [],
+    "unresolved_catalog_references": [],
+    "unused_dependency_overrides": [],
+    "misconfigured_dependency_overrides": []
+  },
+  "dupes": {
+    "clone_groups": [],
+    "clone_families": [],
+    "stats": {
+      "total_files": 12,
+      "files_with_clones": 0,
+      "total_lines": 3570,
+      "duplicated_lines": 0,
+      "total_tokens": 17115,
+      "duplicated_tokens": 0,
+      "clone_groups": 0,
+      "clone_instances": 0,
+      "duplication_percentage": 0.0
+    }
+  },
+  "health": {
+    "findings": [
+      {
+        "path": "src/components/MessageView.svelte",
+        "name": "parseMarkdown",
+        "line": 49,
+        "col": 2,
+        "cyclomatic": 20,
+        "cognitive": 29,
+        "line_count": 55,
+        "param_count": 1,
+        "exceeded": "cognitive_crap",
+        "severity": "critical",
+        "crap": 420.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `parseMarkdown` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "refactor-function",
+            "auto_fixable": false,
+            "description": "Refactor `parseMarkdown` to reduce complexity (extract helper functions, simplify branching)",
+            "note": "Consider splitting into smaller functions with single responsibilities"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "applyStreamEvent",
+        "line": 506,
+        "col": 2,
+        "cyclomatic": 15,
+        "cognitive": 16,
+        "line_count": 29,
+        "param_count": 2,
+        "exceeded": "cognitive_crap",
+        "severity": "critical",
+        "crap": 240.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `applyStreamEvent` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "refactor-function",
+            "auto_fixable": false,
+            "description": "Refactor `applyStreamEvent` to reduce complexity (extract helper functions, simplify branching)",
+            "note": "Consider splitting into smaller functions with single responsibilities"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "parseMcpConfig",
+        "line": 858,
+        "col": 2,
+        "cyclomatic": 14,
+        "cognitive": 18,
+        "line_count": 23,
+        "param_count": 1,
+        "exceeded": "cognitive_crap",
+        "severity": "critical",
+        "crap": 210.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `parseMcpConfig` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "refactor-function",
+            "auto_fixable": false,
+            "description": "Refactor `parseMcpConfig` to reduce complexity (extract helper functions, simplify branching)",
+            "note": "Consider splitting into smaller functions with single responsibilities"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/components/EditorPane.svelte",
+        "name": "token",
+        "line": 173,
+        "col": 9,
+        "cyclomatic": 13,
+        "cognitive": 13,
+        "line_count": 17,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "critical",
+        "crap": 182.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `token` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "handlePromptUndoRedo",
+        "line": 647,
+        "col": 2,
+        "cyclomatic": 12,
+        "cognitive": 10,
+        "line_count": 19,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "critical",
+        "crap": 156.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `handlePromptUndoRedo` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/components/EditorPane.svelte",
+        "name": "languageForPath",
+        "line": 157,
+        "col": 2,
+        "cyclomatic": 11,
+        "cognitive": 10,
+        "line_count": 14,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "critical",
+        "crap": 132.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `languageForPath` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "normalizeMods",
+        "line": 813,
+        "col": 2,
+        "cyclomatic": 11,
+        "cognitive": 9,
+        "line_count": 15,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "critical",
+        "crap": 132.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `normalizeMods` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "keydown",
+        "line": 1566,
+        "col": 2,
+        "cyclomatic": 11,
+        "cognitive": 15,
+        "line_count": 26,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "critical",
+        "crap": 132.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `keydown` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/components/DiffPane.svelte",
+        "name": "classForLine",
+        "line": 92,
+        "col": 2,
+        "cyclomatic": 10,
+        "cognitive": 8,
+        "line_count": 8,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "critical",
+        "crap": 110.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `classForLine` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "globalKeydown",
+        "line": 1593,
+        "col": 2,
+        "cyclomatic": 10,
+        "cognitive": 6,
+        "line_count": 8,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "critical",
+        "crap": 110.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `globalKeydown` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "openFile",
+        "line": 1257,
+        "col": 2,
+        "cyclomatic": 8,
+        "cognitive": 11,
+        "line_count": 41,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "high",
+        "crap": 72.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `openFile` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "setSession",
+        "line": 1071,
+        "col": 2,
+        "cyclomatic": 7,
+        "cognitive": 5,
+        "line_count": 19,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "high",
+        "crap": 56.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `setSession` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "fallbackTab",
+        "line": 1347,
+        "col": 2,
+        "cyclomatic": 7,
+        "cognitive": 4,
+        "line_count": 3,
+        "param_count": 0,
+        "exceeded": "crap",
+        "severity": "high",
+        "crap": 56.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `fallbackTab` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/components/EditorPane.svelte",
+        "name": "ensureMergeView",
+        "line": 193,
+        "col": 2,
+        "cyclomatic": 6,
+        "cognitive": 4,
+        "line_count": 19,
+        "param_count": 0,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 42.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `ensureMergeView` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "activeContextMessages",
+        "line": 372,
+        "col": 2,
+        "cyclomatic": 6,
+        "cognitive": 5,
+        "line_count": 14,
+        "param_count": 3,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 42.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `activeContextMessages` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "upsertToolMessage",
+        "line": 455,
+        "col": 2,
+        "cyclomatic": 6,
+        "cognitive": 3,
+        "line_count": 15,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 42.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `upsertToolMessage` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "openGitDiff",
+        "line": 1200,
+        "col": 2,
+        "cyclomatic": 6,
+        "cognitive": 5,
+        "line_count": 17,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 42.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `openGitDiff` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "<arrow>",
+        "line": 1629,
+        "col": 11,
+        "cyclomatic": 6,
+        "cognitive": 3,
+        "line_count": 10,
+        "param_count": 0,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 42.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `<arrow>` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/components/TerminalPane.svelte",
+        "name": "terminalSize",
+        "line": 69,
+        "col": 2,
+        "cyclomatic": 5,
+        "cognitive": 2,
+        "line_count": 6,
+        "param_count": 0,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 30.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `terminalSize` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/components/EditorPane.svelte",
+        "name": "closeMergeView",
+        "line": 213,
+        "col": 2,
+        "cyclomatic": 5,
+        "cognitive": 5,
+        "line_count": 12,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 30.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `closeMergeView` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "flushStreamBuffer",
+        "line": 419,
+        "col": 2,
+        "cyclomatic": 5,
+        "cognitive": 4,
+        "line_count": 14,
+        "param_count": 0,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 30.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `flushStreamBuffer` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "streamEventKey",
+        "line": 494,
+        "col": 2,
+        "cyclomatic": 5,
+        "cognitive": 4,
+        "line_count": 3,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 30.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `streamEventKey` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "handleStream",
+        "line": 536,
+        "col": 2,
+        "cyclomatic": 5,
+        "cognitive": 5,
+        "line_count": 17,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 30.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `handleStream` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "isStreamingMessage",
+        "line": 676,
+        "col": 2,
+        "cyclomatic": 5,
+        "cognitive": 1,
+        "line_count": 3,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 30.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `isStreamingMessage` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "syncFileWatcher",
+        "line": 1049,
+        "col": 2,
+        "cyclomatic": 5,
+        "cognitive": 4,
+        "line_count": 8,
+        "param_count": 0,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 30.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `syncFileWatcher` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "runFileSearch",
+        "line": 1130,
+        "col": 2,
+        "cyclomatic": 5,
+        "cognitive": 5,
+        "line_count": 15,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 30.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `runFileSearch` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      },
+      {
+        "path": "src/App.svelte",
+        "name": "<arrow>",
+        "line": 1234,
+        "col": 24,
+        "cyclomatic": 5,
+        "cognitive": 4,
+        "line_count": 9,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 30.0,
+        "coverage_tier": "none",
+        "coverage_source": "estimated",
+        "actions": [
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `<arrow>` to lower its CRAP score (coverage reduces risk even without refactoring)",
+            "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+          },
+          {
+            "type": "suppress-line",
+            "auto_fixable": false,
+            "description": "Suppress with an inline comment above the function declaration",
+            "comment": "// fallow-ignore-next-line complexity",
+            "placement": "above-function-declaration"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "files_analyzed": 15,
+      "functions_analyzed": 322,
+      "functions_above_threshold": 27,
+      "max_cyclomatic_threshold": 20,
+      "max_cognitive_threshold": 15,
+      "max_crap_threshold": 30.0,
+      "files_scored": 13,
+      "average_maintainability": 95.8,
+      "coverage_model": "static_estimated",
+      "coverage_source_consistency": "uniform",
+      "severity_critical_count": 10,
+      "severity_high_count": 3,
+      "severity_moderate_count": 14
+    },
+    "vital_signs": {
+      "dead_file_pct": 0.0,
+      "dead_export_pct": 0.0,
+      "avg_cyclomatic": 2.2,
+      "critical_complexity_pct": 0.0,
+      "p90_cyclomatic": 4,
+      "hotspot_count": 1,
+      "hotspot_top_pct_count": 1,
+      "maintainability_avg": 95.8,
+      "maintainability_low_pct": 0.0,
+      "unused_dep_count": 0,
+      "unused_deps_per_k_files": 0.0,
+      "circular_dep_count": 0,
+      "circular_deps_per_k_files": 0.0,
+      "counts": {
+        "total_files": 15,
+        "total_exports": 37,
+        "dead_files": 0,
+        "dead_exports": 0,
+        "total_lines": 4442,
+        "files_scored": 13,
+        "total_deps": 0
+      },
+      "unit_size_profile": {
+        "low_risk": 93.2,
+        "medium_risk": 5.3,
+        "high_risk": 1.6,
+        "very_high_risk": 0.0
+      },
+      "functions_over_60_loc_per_k": 0.0,
+      "unit_interfacing_profile": {
+        "low_risk": 98.8,
+        "medium_risk": 1.2,
+        "high_risk": 0.0,
+        "very_high_risk": 0.0
+      },
+      "p95_fan_in": 1,
+      "coupling_high_pct": 0.0,
+      "total_loc": 4442
+    },
+    "file_scores": [
+      {
+        "path": "src/components/MessageView.svelte",
+        "fan_in": 1,
+        "fan_out": 0,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.12,
+        "maintainability_index": 96.4,
+        "total_cyclomatic": 40,
+        "total_cognitive": 39,
+        "function_count": 12,
+        "lines": 328,
+        "crap_max": 420.0,
+        "crap_above_threshold": 1
+      },
+      {
+        "path": "src/App.svelte",
+        "fan_in": 1,
+        "fan_out": 10,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.27,
+        "maintainability_index": 82.3,
+        "total_cyclomatic": 538,
+        "total_cognitive": 288,
+        "function_count": 245,
+        "lines": 2023,
+        "crap_max": 240.0,
+        "crap_above_threshold": 20
+      },
+      {
+        "path": "src/components/EditorPane.svelte",
+        "fan_in": 1,
+        "fan_out": 0,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.17,
+        "maintainability_index": 94.9,
+        "total_cyclomatic": 65,
+        "total_cognitive": 41,
+        "function_count": 23,
+        "lines": 389,
+        "crap_max": 182.0,
+        "crap_above_threshold": 4
+      },
+      {
+        "path": "src/components/DiffPane.svelte",
+        "fan_in": 1,
+        "fan_out": 0,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.14,
+        "maintainability_index": 95.8,
+        "total_cyclomatic": 23,
+        "total_cognitive": 13,
+        "function_count": 10,
+        "lines": 169,
+        "crap_max": 110.0,
+        "crap_above_threshold": 1
+      },
+      {
+        "path": "src/components/TerminalPane.svelte",
+        "fan_in": 1,
+        "fan_out": 0,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.15,
+        "maintainability_index": 95.5,
+        "total_cyclomatic": 18,
+        "total_cognitive": 8,
+        "function_count": 7,
+        "lines": 120,
+        "crap_max": 30.0,
+        "crap_above_threshold": 1
+      },
+      {
+        "path": "src/components/ToolGroup.svelte",
+        "fan_in": 1,
+        "fan_out": 0,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.11,
+        "maintainability_index": 96.7,
+        "total_cyclomatic": 13,
+        "total_cognitive": 6,
+        "function_count": 7,
+        "lines": 120,
+        "crap_max": 20.0,
+        "crap_above_threshold": 0
+      },
+      {
+        "path": "src/components/SelectBox.svelte",
+        "fan_in": 1,
+        "fan_out": 0,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.08,
+        "maintainability_index": 97.6,
+        "total_cyclomatic": 7,
+        "total_cognitive": 2,
+        "function_count": 4,
+        "lines": 93,
+        "crap_max": 20.0,
+        "crap_above_threshold": 0
+      },
+      {
+        "path": "vite.config.ts",
+        "fan_in": 0,
+        "fan_out": 0,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.08,
+        "maintainability_index": 98.1,
+        "total_cyclomatic": 3,
+        "total_cognitive": 2,
+        "function_count": 1,
+        "lines": 39,
+        "crap_max": 12.0,
+        "crap_above_threshold": 0
+      },
+      {
+        "path": "src/main.ts",
+        "fan_in": 1,
+        "fan_out": 2,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.22,
+        "maintainability_index": 92.6,
+        "total_cyclomatic": 5,
+        "total_cognitive": 2,
+        "function_count": 3,
+        "lines": 23,
+        "crap_max": 6.0,
+        "crap_above_threshold": 0
+      },
+      {
+        "path": "src/components/Modal.svelte",
+        "fan_in": 1,
+        "fan_out": 0,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.08,
+        "maintainability_index": 97.6,
+        "total_cyclomatic": 5,
+        "total_cognitive": 1,
+        "function_count": 4,
+        "lines": 61,
+        "crap_max": 6.0,
+        "crap_above_threshold": 0
+      },
+      {
+        "path": "src/components/FileTree.svelte",
+        "fan_in": 1,
+        "fan_out": 0,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.05,
+        "maintainability_index": 98.5,
+        "total_cyclomatic": 4,
+        "total_cognitive": 0,
+        "function_count": 4,
+        "lines": 86,
+        "crap_max": 2.0,
+        "crap_above_threshold": 0
+      },
+      {
+        "path": "src/components/Checkbox.svelte",
+        "fan_in": 1,
+        "fan_out": 0,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.02,
+        "maintainability_index": 99.5,
+        "total_cyclomatic": 1,
+        "total_cognitive": 0,
+        "function_count": 1,
+        "lines": 44,
+        "crap_max": 2.0,
+        "crap_above_threshold": 0
+      },
+      {
+        "path": "src/components/ItemList.svelte",
+        "fan_in": 1,
+        "fan_out": 0,
+        "dead_code_ratio": 0.0,
+        "complexity_density": 0.01,
+        "maintainability_index": 99.7,
+        "total_cyclomatic": 1,
+        "total_cognitive": 0,
+        "function_count": 1,
+        "lines": 131,
+        "crap_max": 2.0,
+        "crap_above_threshold": 0
+      }
+    ],
+    "hotspots": [
+      {
+        "path": "src/App.svelte",
+        "score": 100.0,
+        "commits": 15,
+        "weighted_commits": 14.74,
+        "lines_added": 2260,
+        "lines_deleted": 238,
+        "complexity_density": 0.27,
+        "fan_in": 1,
+        "trend": "stable",
+        "actions": [
+          {
+            "type": "refactor-file",
+            "auto_fixable": false,
+            "description": "Refactor `src/App.svelte`, high complexity combined with frequent changes makes this a maintenance risk",
+            "note": "Prioritize extracting complex functions, adding tests, or splitting the module"
+          },
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `src/App.svelte` to reduce change risk",
+            "note": "Frequently changed complex files benefit most from comprehensive test coverage"
+          }
+        ]
+      },
+      {
+        "path": "src/components/EditorPane.svelte",
+        "score": 12.5,
+        "commits": 3,
+        "weighted_commits": 2.92,
+        "lines_added": 617,
+        "lines_deleted": 229,
+        "complexity_density": 0.17,
+        "fan_in": 1,
+        "trend": "cooling",
+        "actions": [
+          {
+            "type": "refactor-file",
+            "auto_fixable": false,
+            "description": "Refactor `src/components/EditorPane.svelte`, high complexity combined with frequent changes makes this a maintenance risk",
+            "note": "Prioritize extracting complex functions, adding tests, or splitting the module"
+          },
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `src/components/EditorPane.svelte` to reduce change risk",
+            "note": "Frequently changed complex files benefit most from comprehensive test coverage"
+          }
+        ]
+      },
+      {
+        "path": "src/components/MessageView.svelte",
+        "score": 11.9,
+        "commits": 4,
+        "weighted_commits": 3.94,
+        "lines_added": 335,
+        "lines_deleted": 8,
+        "complexity_density": 0.12,
+        "fan_in": 1,
+        "trend": "accelerating",
+        "actions": [
+          {
+            "type": "refactor-file",
+            "auto_fixable": false,
+            "description": "Refactor `src/components/MessageView.svelte`, high complexity combined with frequent changes makes this a maintenance risk",
+            "note": "Prioritize extracting complex functions, adding tests, or splitting the module"
+          },
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `src/components/MessageView.svelte` to reduce change risk",
+            "note": "Frequently changed complex files benefit most from comprehensive test coverage"
+          }
+        ]
+      },
+      {
+        "path": "src/components/ToolGroup.svelte",
+        "score": 8.2,
+        "commits": 3,
+        "weighted_commits": 2.95,
+        "lines_added": 123,
+        "lines_deleted": 4,
+        "complexity_density": 0.11,
+        "fan_in": 1,
+        "trend": "accelerating",
+        "actions": [
+          {
+            "type": "refactor-file",
+            "auto_fixable": false,
+            "description": "Refactor `src/components/ToolGroup.svelte`, high complexity combined with frequent changes makes this a maintenance risk",
+            "note": "Prioritize extracting complex functions, adding tests, or splitting the module"
+          },
+          {
+            "type": "add-tests",
+            "auto_fixable": false,
+            "description": "Add test coverage for `src/components/ToolGroup.svelte` to reduce change risk",
+            "note": "Frequently changed complex files benefit most from comprehensive test coverage"
+          }
+        ]
+      }
+    ],
+    "hotspot_summary": {
+      "since": "6 months",
+      "min_commits": 3,
+      "files_analyzed": 4,
+      "files_excluded": 9,
+      "shallow_clone": false
+    },
+    "target_thresholds": {
+      "fan_in_p95": 5.0,
+      "fan_in_p75": 3.0,
+      "fan_out_p95": 10.0,
+      "fan_out_p90": 5
+    }
+  }
+}

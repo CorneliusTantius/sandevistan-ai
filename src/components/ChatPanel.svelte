@@ -34,11 +34,25 @@
   export let messages: Message[] = [];
   export let compactSession: () => void = () => {};
   export let cancelPrompt: () => void = () => {};
+
+  let showJumpLatest = false;
+
+  function updateScrollState() {
+    if (!messagesEl) return;
+    showJumpLatest = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight > 160;
+  }
+
+  async function jumpLatest() {
+    if (!messagesEl) return;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    updateScrollState();
+  }
 </script>
 
 <section class="chat" aria-label="AI chat">
   <div class="chat-main">
-    <div class="messages" bind:this={messagesEl} use:bindElement={setMessagesEl}>
+    <div class="messages-wrap">
+    <div class="messages" bind:this={messagesEl} use:bindElement={setMessagesEl} on:scroll={updateScrollState}>
       {#if hiddenMessageGroupCount > 0}
         <button class="ghost show-earlier" type="button" on:click={showEarlierMessages}>show {Math.min(80, hiddenMessageGroupCount)} earlier ({hiddenMessageGroupCount} hidden)</button>
       {/if}
@@ -49,6 +63,10 @@
           <ToolGroup tools={group.tools} />
         {/if}
       {/each}
+    </div>
+    {#if showJumpLatest}
+      <button class="ghost jump-latest" type="button" on:click={jumpLatest}>jump to latest</button>
+    {/if}
     </div>
     <aside class="stats-card" aria-label="Chat stats">
       <div class="side-title">stats</div>

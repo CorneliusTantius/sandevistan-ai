@@ -6,7 +6,11 @@
   --assistant: #7aa2ff;
   --alt: #0b8e95;
   --text: #e6edf3;
-  --muted: #94a3b2;
+  --muted: #aebbc8;
+  --border: #2b3845;
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
   --danger: #e84545;
   --black: #0b1015;
   --white: #f2f5f7;
@@ -53,7 +57,42 @@ select {
 }
 
 ::placeholder {
-  color: var(--muted);
+  color: color-mix(in srgb, var(--muted) 88%, var(--text));
+}
+
+button,
+input,
+textarea,
+select,
+.topbar,
+.side-section,
+.result-row,
+.content-result,
+.feature-list,
+.mods-content,
+.mini-pre,
+.empty-editor,
+.stats-card,
+.messages,
+.extension-row,
+.jump-latest,
+.mention-menu,
+.running-status,
+.side-tabs,
+.tabbar {
+  border-color: var(--border);
+  border-radius: var(--radius);
+}
+
+button,
+input,
+textarea,
+select,
+.result-row,
+.content-result,
+.extension-row,
+.mention-menu button {
+  border-radius: var(--radius-sm);
 }
 
 .app {
@@ -74,7 +113,7 @@ select {
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--panel);
 }
 
@@ -130,7 +169,7 @@ h2 {
   min-height: 34px;
   padding: 0;
   color: var(--text);
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--surface);
 }
 
@@ -177,7 +216,7 @@ h2 {
   align-content: start;
   gap: 10px;
   padding: 10px;
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--panel);
   overflow: auto;
 }
@@ -244,7 +283,7 @@ h2 {
   gap: 3px;
   padding: 8px 10px;
   color: var(--text);
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--surface);
   text-align: left;
   text-transform: none;
@@ -279,7 +318,7 @@ h2 {
   gap: 6px;
   padding: 8px 10px;
   color: var(--text);
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--surface);
   font-weight: 400;
   text-align: left;
@@ -335,7 +374,7 @@ h2 {
   display: grid;
   gap: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--panel);
+  border-top: 1px solid var(--border);
 }
 
 .compact-feature-list {
@@ -344,7 +383,9 @@ h2 {
 }
 
 .mods-layout {
-  min-height: 380px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
   display: grid;
   grid-template-columns: 132px minmax(0, 1fr);
   gap: 12px;
@@ -371,6 +412,8 @@ h2 {
 
 .mods-content {
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
   display: grid;
   align-content: start;
   gap: 12px;
@@ -388,7 +431,7 @@ h2 {
   margin: 0;
   padding: 8px;
   color: var(--muted);
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--black);
   font: inherit;
   font-size: 11px;
@@ -421,7 +464,7 @@ h2 {
   display: grid;
   place-items: center;
   color: var(--muted);
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--panel);
 }
 
@@ -453,7 +496,7 @@ h2 {
   align-content: start;
   gap: 8px;
   padding: 10px;
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--panel);
 }
 
@@ -485,14 +528,20 @@ h2 {
   background: var(--accent);
 }
 
+.messages-wrap {
+  position: relative;
+  min-height: 0;
+}
+
 .messages {
+  height: 100%;
   min-height: 0;
   overflow: auto;
   display: grid;
   align-content: start;
   gap: 10px;
   padding: 10px;
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--panel);
 }
 
@@ -500,7 +549,7 @@ h2 {
   display: grid;
   gap: 4px;
   padding: 8px;
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: color-mix(in srgb, var(--black) 86%, var(--panel));
 }
 
@@ -508,7 +557,7 @@ h2 {
   width: fit-content;
   padding: 2px 6px;
   color: var(--muted);
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   font-size: 11px;
   text-transform: uppercase;
 }
@@ -521,6 +570,16 @@ h2 {
 .extension-row small {
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+
+.jump-latest {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 2;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--panel);
 }
 
 .show-earlier {
@@ -548,7 +607,7 @@ h2 {
   max-height: 220px;
   overflow: auto;
   padding: 6px;
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--black);
 }
 
@@ -585,7 +644,7 @@ h2 {
   gap: 8px;
   width: fit-content;
   padding: 6px 8px;
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   color: var(--accent);
   background: color-mix(in srgb, var(--black) 88%, var(--panel));
   font-size: 12px;
@@ -606,7 +665,7 @@ select {
   width: 100%;
   padding: 10px 12px;
   color: var(--text);
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   outline: none;
   background: var(--surface);
 }
@@ -639,7 +698,7 @@ button.ghost {
   min-height: 32px;
   padding: 0 12px;
   color: var(--text);
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--surface);
 }
 
@@ -672,7 +731,7 @@ button.ghost.danger:focus-visible {
 button:disabled {
   cursor: not-allowed;
   color: var(--muted);
-  border-color: var(--panel);
+  border-color: var(--border);
   background: var(--bg);
 }
 
@@ -704,7 +763,7 @@ small {
 .side-tabs {
   display: flex;
   min-width: 0;
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--black);
 }
 
@@ -715,7 +774,7 @@ small {
   padding: 0 10px;
   color: var(--muted);
   border: 0;
-  border-right: 1px solid var(--panel);
+  border-right: 1px solid var(--border);
   background: transparent;
 }
 
@@ -743,7 +802,7 @@ small {
   min-width: 0;
   overflow: auto hidden;
   display: flex;
-  border: 1px solid var(--panel);
+  border: 1px solid var(--border);
   background: var(--panel);
 }
 
@@ -754,7 +813,7 @@ small {
   padding: 0 12px;
   color: var(--muted);
   border: 0;
-  border-right: 1px solid var(--panel);
+  border-right: 1px solid var(--border);
   background: transparent;
   text-overflow: ellipsis;
   white-space: nowrap;

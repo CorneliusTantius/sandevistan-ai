@@ -3,6 +3,9 @@
   export let role: Role;
   export let content = "";
   export let streaming = false;
+  const LONG_LIMIT = 300;
+  let expanded = false;
+  let copied = false;
 
   type Block =
     | { kind: "code"; lang: string; text: string }
@@ -13,8 +16,10 @@
     | { kind: "text"; text: string };
 
   let toolLevel = 0;
-  $: renderedContent = streaming ? content : renderedOnly(content);
-  $: blocks = streaming ? [] : parseMarkdown(renderedContent);
+  $: renderedContent = renderedOnly(content);
+  $: isLong = role === "assistant" && !streaming && renderedContent.trim().length > LONG_LIMIT;
+  $: visibleContent = isLong && !expanded ? renderedContent.slice(0, LONG_LIMIT) : renderedContent;
+  $: blocks = parseMarkdown(visibleContent);
   $: toolTitle = content.split("\n", 1)[0] || "tool";
   $: toolBody = content.split("\n").slice(1).join("\n").trim();
   $: toolStatus = [...content.matchAll(/^status:\s*([^\n]+)/gm)].at(-1)?.[1]?.trim().toLowerCase() ?? "";
@@ -137,6 +142,16 @@
       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   }
 
+  async function copyText(value: string) {
+    await navigator.clipboard?.writeText(value);
+    copied = true;
+    window.setTimeout(() => (copied = false), 900);
+  }
+
+  function toggleExpand() {
+    if (isLong) expanded = !expanded;
+  }
+
   function highlightedCode(value: string, lang: string) {
     const html = escapeHtml(value);
     const normalized = lang.toLowerCase();
@@ -157,59 +172,106 @@
   }
 </script>
 
-<article class={`message ${role} ${toolFailed ? "tool-failed" : ""}`}>
-  <span>{role}</span>
-  {#if role === "tool"}
-    <button class="tool-toggle" class:tool-failed={toolFailed} type="button" on:click={cycleTool}>{toolTitle}{toolFailed ? " [failed]" : ""} {toolLevel === 0 ? "[+]" : toolLevel === 1 ? "[++ ]" : "[-]"}</button>
-    {#if toolLevel === 1}
-      <pre class="tool-body">{toolBody.slice(0, 700)}{toolBody.length > 700 ? "\n..." : ""}</pre>
-    {:else if toolLevel === 2}
-      <pre class="tool-body">{toolBody}</pre>
-    {/if}
-  {:else if streaming}
-    <pre class="streaming-text">{renderedContent}</pre>
-  {:else}
-    <div class="markdown">
-      {#each blocks as block}
-        {#if block.kind === "code"}
-          <pre class="code"><code>{@html highlightedCode(block.text, block.lang)}</code></pre>
-        {:else if block.kind === "heading"}
-          <h3>{@html inlineMarkdown(block.text)}</h3>
-        {:else if block.kind === "list"}
-          <ul>{#each block.items as item}<li>{@html inlineMarkdown(item)}</li>{/each}</ul>
-        {:else if block.kind === "table"}
-          <div class="table-wrap">
-            <table>
-              <thead><tr>{#each block.headers as header}<th>{@html inlineMarkdown(header)}</th>{/each}</tr></thead>
-              <tbody>
-                {#each block.rows as row}
-                  <tr>{#each block.headers as _, index}<td>{@html inlineMarkdown(row[index] ?? "")}</td>{/each}</tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {:else if block.kind === "hr"}
-          <hr />
-        {:else}
-          <p>{@html inlineMarkdown(block.text)}</p>
-        {/if}
-      {/each}
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+<article class={`message ${role} ${toolFailed ? "tool-failed" : ""}`} class:collapsible={isLong} on:click={toggleExpand}>
+  <div class="message-head">
+    <span>{role}</span>
+    <div class="message-actions">
+      {#if isLong}
+        <button class="mini message-expand" type="button" on:click|stopPropagation={toggleExpand}>{expanded ? "collapse" : `expand (${Math.round(renderedContent.length / 1000)}k)`}</button>
+      {/if}
+      {#if role !== "tool"}
+        <button class="mini message-copy" type="button" on:click|stopPropagation={() => void copyText(renderedContent)}>{copied ? "copied" : "copy"}</button>
+      {/if}
     </div>
-  {/if}
+  </div>
+  <div class="message-body">
+    {#if role === "tool"}
+      <button class="tool-toggle" class:tool-failed={toolFailed} type="button" on:click={cycleTool}>{toolTitle}{toolFailed ? " [failed]" : ""} {toolLevel === 0 ? "[+]" : toolLevel === 1 ? "[++ ]" : "[-]"}</button>
+      {#if toolLevel === 1}
+        <pre class="tool-body">{toolBody.slice(0, 700)}{toolBody.length > 700 ? "\n..." : ""}</pre>
+      {:else if toolLevel === 2}
+        <pre class="tool-body">{toolBody}</pre>
+      {/if}
+    {:else}
+      <div class="markdown">
+        {#each blocks as block}
+          {#if block.kind === "code"}
+            <div class="code-wrap"><button class="mini code-copy" type="button" on:click={() => void copyText(block.text)}>copy</button><pre class="code"><code>{@html highlightedCode(block.text, block.lang)}</code></pre></div>
+          {:else if block.kind === "heading"}
+            <h3>{@html inlineMarkdown(block.text)}</h3>
+          {:else if block.kind === "list"}
+            <ul>{#each block.items as item}<li>{@html inlineMarkdown(item)}</li>{/each}</ul>
+          {:else if block.kind === "table"}
+            <div class="table-wrap">
+              <table>
+                <thead><tr>{#each block.headers as header}<th>{@html inlineMarkdown(header)}</th>{/each}</tr></thead>
+                <tbody>
+                  {#each block.rows as row}
+                    <tr>{#each block.headers as _, index}<td>{@html inlineMarkdown(row[index] ?? "")}</td>{/each}</tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {:else if block.kind === "hr"}
+            <hr />
+          {:else}
+            <p>{@html inlineMarkdown(block.text)}</p>
+          {/if}
+        {/each}
+      </div>
+    {/if}
+  </div>
+  <!-- collapse action lives in message header -->
 </article>
 
 <style>
   .message {
-    width: 100%;
+    width: 90%;
+    max-width: 90%;
+    justify-self: start;
     min-width: 0;
-    padding: 10px 12px;
-    border: 1px solid var(--panel);
-    background: var(--bg);
+    display: grid;
+    gap: 6px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: transparent;
+  }
+
+  .message-head {
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 10px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+    background: color-mix(in srgb, var(--surface) 72%, var(--black));
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
+  .message-body {
+    min-width: 0;
+    padding: 10px 12px 12px;
+  }
+
+  .message.collapsible {
+    cursor: pointer;
+  }
+
+  .message.collapsible .message-body:hover {
+    background: color-mix(in srgb, var(--surface) 18%, transparent);
+  }
+
+  .message-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 
   .message span {
     display: block;
-    margin-bottom: 5px;
     color: var(--muted);
     font-size: 11px;
     font-weight: 700;
@@ -218,8 +280,12 @@
   }
 
   .assistant {
-    border-color: var(--assistant);
-    background: var(--bg);
+    justify-self: end;
+    border-color: color-mix(in srgb, var(--assistant) 55%, var(--border));
+  }
+
+  .assistant .message-head {
+    background: color-mix(in srgb, var(--bg) 88%, var(--assistant));
   }
 
   .assistant span {
@@ -227,8 +293,12 @@
   }
 
   .user {
-    border-color: var(--alt);
-    background: var(--surface);
+    justify-self: start;
+    border-color: color-mix(in srgb, var(--alt) 60%, var(--border));
+  }
+
+  .user .message-head {
+    background: color-mix(in srgb, var(--surface) 90%, var(--alt));
   }
 
   .user span {
@@ -274,12 +344,13 @@
   hr {
     width: 100%;
     border: 0;
-    border-top: 1px solid var(--panel);
+    border-top: 1px solid var(--border);
   }
 
   .table-wrap {
     overflow: auto;
-    border: 1px solid var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     background: var(--black);
   }
 
@@ -293,7 +364,7 @@
   th,
   td {
     padding: 6px 8px;
-    border: 1px solid var(--panel);
+    border: 1px solid var(--border);
     text-align: left;
     vertical-align: top;
   }
@@ -321,7 +392,8 @@
 
   :global(.inline-code) {
     padding: 1px 4px;
-    border: 1px solid var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     background: var(--black);
     color: var(--muted);
     font: inherit;
@@ -351,12 +423,53 @@
     font-style: italic;
   }
 
-  .streaming-text {
-    margin: 0;
-    color: var(--text);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    font: inherit;
+  .mini {
+    min-height: 22px;
+    align-self: center;
+    padding: 0 7px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--surface) 82%, var(--black));
+    font-size: 11px;
+    line-height: 1;
+  }
+
+  .message-copy,
+  .message-expand {
+    flex: 0 0 auto;
+    min-width: 0;
+    min-height: 20px;
+    opacity: 0.75;
+  }
+
+  .message-copy:hover,
+  .message-copy:focus-visible {
+    opacity: 1;
+  }
+
+  .code-wrap {
+    position: relative;
+    min-width: 0;
+  }
+
+  .code {
+    padding-top: 32px;
+  }
+
+  .code-copy {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+  }
+
+  .expand {
+    width: fit-content;
+    justify-self: start;
+    margin: 0 0 10px 12px;
+    font-size: 12px;
   }
 
   .code,
@@ -364,7 +477,8 @@
     margin: 0;
     overflow: auto;
     padding: 8px;
-    border: 1px solid var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     background: var(--black);
     color: var(--muted);
     white-space: pre;
@@ -374,7 +488,8 @@
     width: 100%;
     justify-content: start;
     color: var(--muted);
-    border: 1px solid var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     background: color-mix(in srgb, var(--black) 88%, var(--panel));
     text-align: left;
     cursor: pointer;

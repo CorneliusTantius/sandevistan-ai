@@ -69,11 +69,11 @@
 
 <style>
   .tool-group {
-    width: 100%;
+    width: 90%;
+    max-width: 90%;
+    justify-self: end;
     min-width: 0;
-    padding: 10px 12px;
-    border: 1px solid var(--panel);
-    background: color-mix(in srgb, var(--black) 82%, var(--panel));
+    padding: 6px 0;
   }
 
   .group-toggle,
@@ -84,8 +84,8 @@
     gap: 6px;
     justify-content: start;
     color: var(--muted);
-    border: 1px solid var(--panel);
-    background: color-mix(in srgb, var(--black) 88%, var(--panel));
+    border: 1px solid var(--border);
+    background: none;
     text-align: left;
     cursor: pointer;
     font-size: 12px;
@@ -118,11 +118,15 @@
     display: grid;
     gap: 8px;
     margin-top: 8px;
+    margin-left: 18px;
+    padding-left: 12px;
+    border-left: 1px solid var(--border);
   }
 
   .tool-item {
     display: grid;
     gap: 6px;
+    padding-left: 4px;
   }
 
   pre {
