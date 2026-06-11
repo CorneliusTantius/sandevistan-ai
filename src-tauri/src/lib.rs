@@ -323,6 +323,8 @@ pub fn run() {
         .manage(watcher::FileWatcherState::default())
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_fullscreen(false);
+                let _ = window.set_resizable(true);
                 if let Ok(Some(monitor)) = window.current_monitor().or_else(|_| window.primary_monitor()) {
                     let screen_size = monitor.size();
                     let _ = window.set_size(Size::Physical(PhysicalSize::new(

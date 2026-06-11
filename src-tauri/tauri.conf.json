@@ -16,7 +16,9 @@
         "title": "sandevistan",
         "width": 1280,
         "height": 800,
-        "maximized": true,
+        "fullscreen": false,
+        "maximized": false,
+        "resizable": true,
         "visible": false,
         "theme": "Dark",
         "decorations": true
