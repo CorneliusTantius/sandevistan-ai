@@ -27,8 +27,8 @@
 
 <div class="file-tree">
   {#each entries as entry (entry.path)}
-    <button class:open={isExpanded(entry)} class="file-row" type="button" style={`--depth:${entry.depth}`} aria-expanded={entry.kind === "dir" ? isExpanded(entry) : undefined} on:click={() => select(entry)}>
-      <span class="kind">{entry.kind === "dir" ? (isExpanded(entry) ? "▾" : "▸") : "·"}</span>
+    <button class:open={isExpanded(entry)} class:dir={entry.kind === "dir"} class="file-row" type="button" style={`--depth:${entry.depth}`} aria-expanded={entry.kind === "dir" ? isExpanded(entry) : undefined} on:click={() => select(entry)}>
+      <span class="kind">{entry.kind === "dir" ? (isExpanded(entry) ? "▣" : "□") : "·"}</span>
       <span class="name">{entry.name}</span>
     </button>
   {/each}
@@ -71,6 +71,11 @@
 
   .kind {
     color: var(--muted);
+  }
+
+  .file-row.dir .name {
+    color: var(--text);
+    font-weight: 700;
   }
 
   .name {
