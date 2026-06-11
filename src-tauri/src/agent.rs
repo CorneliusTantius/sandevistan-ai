@@ -328,6 +328,7 @@ impl ChatRuntime {
         if input.is_empty() {
             return Err("message is empty".into());
         }
+        let display_input = visible_user_input(input);
 
         let state = self.snapshot()?;
         let mut index = ensure_index(&state.workspace);
@@ -343,7 +344,7 @@ impl ChatRuntime {
         let mut file = load_session_file(&state.workspace, &state.active_session_id)?;
         file.messages.push(ChatMessage {
             role: "user".into(),
-            content: input.into(),
+            content: display_input,
         });
         if file.title == "untitled" {
             file.title = title_from_messages(&file.messages);
@@ -359,7 +360,10 @@ impl ChatRuntime {
         let workspace = state.workspace.clone();
         let session_id = state.active_session_id.clone();
         let task_session_id = session_id.clone();
-        let messages = file.messages;
+        let mut messages = file.messages.clone();
+        if let Some(last) = messages.last_mut().filter(|message| message.role == "user") {
+            last.content = input.into();
+        }
         let task_id = new_id();
         let tasks = self.tasks.clone();
         let mods = ai::active_mods();
@@ -451,6 +455,15 @@ impl ChatRuntime {
             .map_err(|_| "chat lock poisoned".to_string())? = state;
         Ok(())
     }
+}
+
+
+fn visible_user_input(input: &str) -> String {
+    let marker = "\n\nReferenced files:\n";
+    input
+        .split_once(marker)
+        .map(|(visible, _)| visible.trim().to_string())
+        .unwrap_or_else(|| input.to_string())
 }
 
 fn cancel_session(workspace: &PathBuf, session_id: &str) -> Result<(), String> {

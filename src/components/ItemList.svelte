@@ -47,8 +47,10 @@
     min-width: 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    border: 1px solid var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     background: var(--surface);
+    overflow: hidden;
   }
 
   .item-row.active {
@@ -98,7 +100,8 @@
   }
 
   .add {
-    border: 1px solid var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     background: var(--surface);
   }
 

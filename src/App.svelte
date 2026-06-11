@@ -1413,16 +1413,18 @@
   async function expandFileReferences(input: string) {
     const paths = [...new Set([...input.matchAll(/(?:^|\s)@([^\s@]+)/g)].map((match) => match[1]))];
     const files: string[] = [];
+    const labels: string[] = [];
     for (const path of paths.slice(0, 8)) {
       try {
         const file = await invoke<{ path: string; content: string }>("file_read", { request: { path } });
         files.push(`--- ${file.path} ---\n${file.content}`);
+        labels.push(`${file.path} (${file.content.length} chars)`);
       } catch {
         // Ignore unresolved refs; the raw @path remains in the prompt.
       }
     }
-    if (!files.length) return input;
-    return `${input}\n\nReferenced files:\n${files.join("\n\n")}`;
+    if (!files.length) return { prompt: input, labels: [] };
+    return { prompt: `${input}\n\nReferenced files:\n${files.join("\n\n")}`, labels };
   }
 
   async function sendPrompt() {
@@ -1436,7 +1438,9 @@
     addMessage("user", input);
 
     try {
-      await invoke("chat_send", { prompt: await expandFileReferences(input) });
+      const expanded = await expandFileReferences(input);
+      if (expanded.labels.length) addMessage("tool", `file references\nstatus: ok\n${expanded.labels.join("\n")}`);
+      await invoke("chat_send", { prompt: expanded.prompt });
       markActiveSessionRunning(true);
     } catch (error) {
       addMessage("error", String(error));

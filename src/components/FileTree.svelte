@@ -52,6 +52,7 @@
     padding: 3px 8px 3px calc(8px + var(--depth) * 12px);
     color: var(--text);
     border: 0;
+    border-radius: var(--radius-sm);
     background: transparent;
     text-align: left;
     cursor: pointer;
