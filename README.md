@@ -27,6 +27,30 @@ Project name is referenced after cyberpunk 2077's sandevistan chrome that activa
 
 <!-- macOS installer removes quarantine automatically. -->
 
+## Setting up AI API
+
+1. Open Sandevistan and click `mods`.
+2. Go to `providers`, then edit `openai` or add a new provider.
+3. Set the API base and API key:
+
+   ```txt
+   API base: https://api.openai.com/v1
+   API key: your_api_key_here
+   ```
+
+4. Go to `models` and select/add a model, for example `gpt-4o-mini`.
+5. Click `save mods`, then test it in chat.
+
+OpenAI-compatible providers also work: use their API base URL and model ID.
+
+```mermaid
+graph TD
+  Profile[Profile] --> Agent[Main agent]
+  Profile --> Subagents[Enabled subagents]
+  Agent --> Chat[Chat behavior]
+  Subagents --> Tasks[Delegated tasks]
+```
+
 ## Tech Stack
 
 - 🦀 Rust
