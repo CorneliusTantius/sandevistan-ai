@@ -1,7 +1,7 @@
-use crate::{ai, extensions, mcp, runtime_wire::NativeToolSpec, subagent, tools};
+use crate::{ai, extensions, mcp, subagent, tools};
 use sandevistan_core::{
     tools::{ToolFuture, ToolHost, ToolRequest},
-    AgentMods,
+    AgentMods, NativeToolSpec,
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -14,6 +14,23 @@ pub struct AppToolHost {
 impl AppToolHost {
     pub fn new(workspace: PathBuf, mods: AgentMods) -> Arc<Self> {
         Arc::new(Self { workspace, mods })
+    }
+
+    async fn run_inner(&self, request: ToolRequest) -> String {
+        let call = normalize_tool_call(tools::ToolCall {
+            name: request.name,
+            args: request.args,
+        });
+
+        execute_tool(
+            self.workspace.clone(),
+            request.session_id,
+            call,
+            self.mods.clone(),
+            request.read_only,
+            request.delegate_depth_remaining,
+        )
+        .await
     }
 }
 
@@ -52,25 +69,7 @@ impl ToolHost for AppToolHost {
     }
 }
 
-impl AppToolHost {
-    async fn run_inner(&self, request: ToolRequest) -> String {
-        let call = tools::ToolCall {
-            name: request.name,
-            args: request.args,
-        };
-        run_streamed_tool_call(
-            self.workspace.clone(),
-            request.session_id,
-            call,
-            self.mods.clone(),
-            request.read_only,
-            request.delegate_depth_remaining,
-        )
-        .await
-    }
-}
-
-pub async fn run_streamed_tool_call(
+async fn execute_tool(
     workspace: PathBuf,
     session_id: String,
     call: tools::ToolCall,
@@ -78,54 +77,91 @@ pub async fn run_streamed_tool_call(
     read_only: bool,
     delegate_depth_remaining: usize,
 ) -> String {
-    let name = call.name.clone();
-    let call = normalize_tool_call(call);
-
-    let mut call = if extensions::is_extension_tool(&call.name) {
-        if !call.args.is_object() {
-            return failed_tool_content(&name, "invalid tool call: args must be a JSON object");
-        }
-        call
-    } else {
-        match validate_tool_call(call, &mods, read_only) {
-            Ok(validated) => validated.call,
-            Err(error) => return failed_tool_content(&name, &format!("invalid tool call: {error}")),
-        }
+    let display_name = call.name.clone();
+    let mut call = match validate_or_accept_extension(call, &mods, read_only) {
+        Ok(call) => call,
+        Err(error) => return failed_tool_content(&display_name, &error),
     };
 
+    if let Err(error) = apply_before_hooks(&workspace, &display_name, &mut call, &mods, read_only) {
+        return failed_tool_content(&display_name, &error);
+    }
+
+    let output = dispatch_tool(
+        workspace.clone(),
+        session_id,
+        call,
+        mods,
+        delegate_depth_remaining,
+    )
+    .await;
+
+    extensions::hook_bus(&workspace).emit(extensions::hooks::HookEvent::AfterToolResult {
+        tool: display_name.clone(),
+        content: output.clone(),
+    });
+    format!("{display_name}\n{output}")
+}
+
+fn validate_or_accept_extension(
+    call: tools::ToolCall,
+    mods: &ai::ModelMods,
+    read_only: bool,
+) -> Result<tools::ToolCall, String> {
+    if extensions::is_extension_tool(&call.name) {
+        ensure_object_args(&call)?;
+        return Ok(call);
+    }
+    validate_tool_call(call, mods, read_only).map(|validated| validated.call)
+}
+
+fn apply_before_hooks(
+    workspace: &PathBuf,
+    display_name: &str,
+    call: &mut tools::ToolCall,
+    mods: &ai::ModelMods,
+    read_only: bool,
+) -> Result<(), String> {
     let mut modified = false;
-    for decision in extensions::hook_bus(&workspace).emit(extensions::hooks::HookEvent::BeforeToolCall {
-        tool: call.name.clone(),
-        args: call.args.clone(),
-    }) {
+    for decision in extensions::hook_bus(workspace).emit(
+        extensions::hooks::HookEvent::BeforeToolCall {
+            tool: call.name.clone(),
+            args: call.args.clone(),
+        },
+    ) {
         match decision {
-            extensions::hooks::HookDecision::Block { reason } => return failed_tool_content(&name, &reason),
+            extensions::hooks::HookDecision::Block { reason } => return Err(reason),
             extensions::hooks::HookDecision::ModifyToolArgs { args } => {
                 call.args = args;
                 modified = true;
             }
-            extensions::hooks::HookDecision::Continue | extensions::hooks::HookDecision::AppendSystemContext { .. } => {}
+            extensions::hooks::HookDecision::Continue
+            | extensions::hooks::HookDecision::AppendSystemContext { .. } => {}
         }
     }
-    if modified && !extensions::is_extension_tool(&call.name) {
-        call = match validate_tool_call(call, &mods, read_only) {
-            Ok(validated) => validated.call,
-            Err(error) => return failed_tool_content(&name, &format!("modified tool call invalid: {error}")),
-        };
-    }
 
-        let output = if mcp::is_mcp_tool(&call.name) {
+    if modified && !extensions::is_extension_tool(&call.name) {
+        *call = validate_tool_call(call.clone(), mods, read_only)
+            .map_err(|error| format!("modified tool call invalid: {error}"))?
+            .call;
+    }
+    ensure_object_args(call).map_err(|error| format!("{display_name}: {error}"))
+}
+
+async fn dispatch_tool(
+    workspace: PathBuf,
+    session_id: String,
+    call: tools::ToolCall,
+    mods: ai::ModelMods,
+    delegate_depth_remaining: usize,
+) -> String {
+    if mcp::is_mcp_tool(&call.name) {
         mcp::run(&workspace, call, &mods.mcp_config).await
     } else if extensions::is_extension_tool(&call.name) {
         extensions::execute_tool(&workspace, &call.name, call.args)
     } else {
-        run_builtin_tool(workspace.clone(), session_id, call, mods, delegate_depth_remaining).await
-    };
-    extensions::hook_bus(&workspace).emit(extensions::hooks::HookEvent::AfterToolResult {
-        tool: name.clone(),
-        content: output.clone(),
-    });
-    format!("{name}\n{output}")
+        run_builtin_tool(workspace, session_id, call, mods, delegate_depth_remaining).await
+    }
 }
 
 fn normalize_tool_call(mut call: tools::ToolCall) -> tools::ToolCall {
@@ -157,6 +193,13 @@ fn validate_tool_call(
     .validate(call, mods)
 }
 
+fn ensure_object_args(call: &tools::ToolCall) -> Result<(), String> {
+    call.args
+        .is_object()
+        .then_some(())
+        .ok_or_else(|| "args must be a JSON object".into())
+}
+
 fn failed_tool_content(name: &str, error: &str) -> String {
     format!(
         "{name}\nstatus: failed\nerror: {error}\nnote: tool failed; do not repeat identical call. answer with current evidence or try a different tool/query."
@@ -183,6 +226,7 @@ async fn run_builtin_tool(
         )
         .await;
     }
+
     tokio::task::spawn_blocking(move || {
         tools::run_with_options(
             &workspace,

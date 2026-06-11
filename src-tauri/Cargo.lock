@@ -2926,7 +2926,7 @@ dependencies = [
 
 [[package]]
 name = "sandevistan"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "dirs 5.0.1",
  "ignore",
@@ -2946,6 +2946,7 @@ dependencies = [
 [[package]]
 name = "sandevistan-core"
 version = "0.1.0"
+source = "git+https://github.com/CorneliusTantius/sandevistan-core#d7f9541ef16cabb4c5f840ccc0894773b001b691"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -4672,7 +4673,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

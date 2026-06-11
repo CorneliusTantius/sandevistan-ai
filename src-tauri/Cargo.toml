@@ -1,6 +1,6 @@
 [package]
 name = "sandevistan"
-version = "1.10.0"
+version = "1.11.0"
 description = "Minimal coding agent harness"
 authors = ["you"]
 edition = "2021"
@@ -28,7 +28,7 @@ tokio = { version = "1", features = ["time", "sync", "macros", "process", "io-ut
 portable-pty = "0.8"
 ignore = "0.4"
 notify = "6"
-sandevistan-core = { path = "../crates/sandevistan-core" }
+sandevistan-core = { git = "https://github.com/CorneliusTantius/sandevistan-core" }
 tauri-plugin-dialog = "^2"
 
 [profile.dev]

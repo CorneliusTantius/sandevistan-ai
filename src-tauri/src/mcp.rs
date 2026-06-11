@@ -1,4 +1,5 @@
-use crate::{ai, runtime_wire::NativeToolSpec, tools::ToolCall};
+use crate::{ai, tools::ToolCall};
+use sandevistan_core::NativeToolSpec;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{collections::HashMap, path::Path, time::Duration};

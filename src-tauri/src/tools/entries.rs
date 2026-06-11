@@ -1,4 +1,5 @@
-use crate::{ai, runtime_wire::NativeToolSpec};
+use crate::ai;
+use sandevistan_core::NativeToolSpec;
 use serde_json::Value;
 use std::path::Path;
 

@@ -768,6 +768,7 @@
   function openMods() {
     modsProfile = config.active_profile || "default";
     modsDraft = normalizeMods(config.mods);
+    modsTab = "general";
     addingAgent = false;
     addingSubagent = false;
     editingExtension = false;
@@ -1805,6 +1806,15 @@
 
         <section class="mods-content">
           {#if modsTab === "general"}
+            <div class="mods-about" aria-label="app description">
+              <pre>{`sandevistan@${appVersion}
+----------------
+profile       ${config.active_profile || "default"}
+model         ${config.mods.main_model}
+agent         ${config.mods.main_agent}
+workspace     ${workspace || "none"}
+features      git:${featureGit ? "on" : "off"} watcher:${featureFileWatcher ? "on" : "off"} search:${featureContentSearch ? "on" : "off"}`}</pre>
+            </div>
             <div class="feature-list compact-feature-list">
               <div class="side-title">general settings</div>
               <Checkbox checked={featureGit} label={`git panel: ${featureGit ? "on" : "off"}`} onChange={(checked) => void setFeature("git", checked)} />

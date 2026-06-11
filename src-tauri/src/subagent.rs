@@ -2,6 +2,7 @@ use crate::{
     ai::{ChatMessage, ModelMods, SubagentDef},
     tools::{self, ToolCall},
 };
+use sandevistan_core::PromptConfig;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{future::Future, path::PathBuf, pin::Pin, time::Duration};
@@ -175,26 +176,26 @@ async fn run_one_inner(
     let provider = crate::ai::provider_config_for_model(model)?;
     let runtime = crate::runtime::AgentRuntime::new();
     let result = runtime
-        .run(crate::runtime::AgentRuntimeConfig {
-            session_id: format!("subagent-{}", def.name),
-            messages: vec![ChatMessage {
-                role: "user".into(),
-                content: format!("Task:\n{task_text}"),
-            }],
-            mods: subagent_mods.clone(),
-            prompt_config: crate::context::PromptConfig::from_context_chars(40_000),
-            summary: None,
-            system_prompt: Some(system),
-            provider,
-            read_only: false,
-            delegate_depth_remaining: depth_remaining,
-            budgets: crate::runtime::AgentBudgets {
-                tool_timeout: TOOL_TIMEOUT,
-            },
-            cancellation_token: crate::runtime::CancellationToken::new(),
-            tool_host: crate::runtime::AppToolHost::new(workspace, subagent_mods),
-            on_event: std::sync::Arc::new(|_event| {}),
-        })
+        .run(
+            crate::runtime::AgentRuntimeConfig::builder()
+                .session_id(format!("subagent-{}", def.name))
+                .messages(vec![ChatMessage {
+                    role: "user".into(),
+                    content: format!("Task:\n{task_text}"),
+                }])
+                .mods(subagent_mods.clone())
+                .prompt_config(PromptConfig::from_context_chars(40_000))
+                .system_prompt(system)
+                .provider(provider)
+                .delegate_depth_remaining(depth_remaining)
+                .budgets(crate::runtime::AgentBudgets {
+                    tool_timeout: TOOL_TIMEOUT,
+                })
+                .cancellation_token(crate::runtime::CancellationToken::new())
+                .shared_tool_host(crate::runtime::AppToolHost::new(workspace, subagent_mods))
+                .build()
+                .map_err(|error| error.to_string())?,
+        )
         .await
         .map_err(|error| error.message)?;
 

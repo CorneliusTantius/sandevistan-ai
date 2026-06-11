@@ -1,3 +1,4 @@
+use sandevistan_core::NativeToolSpec;
 use serde::Serialize;
 use std::{collections::HashMap, path::Path};
 
@@ -90,12 +91,12 @@ pub fn parse_extension_tool_name(name: &str) -> Option<(String, String)> {
     Some((extension_id.to_string(), tool_name.to_string()))
 }
 
-pub fn tool_specs(workspace: &Path) -> Vec<crate::runtime_wire::NativeToolSpec> {
+pub fn tool_specs(workspace: &Path) -> Vec<NativeToolSpec> {
     external::extension_tools(workspace)
         .into_iter()
         .map(|(extension_id, tool)| {
             let internal_name = format!("ext.{}.{}", extension_id, tool.name);
-            crate::runtime_wire::NativeToolSpec {
+            NativeToolSpec {
                 openai_name: openai_tool_name(&extension_id, &tool.name),
                 name: internal_name,
                 description: tool.description,

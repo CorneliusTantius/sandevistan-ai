@@ -1,7 +1,5 @@
-use crate::{
-    ai::{self, ChatMessage},
-    context,
-};
+use crate::ai::{self, ChatMessage};
+use sandevistan_core::PromptConfig;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -577,7 +575,7 @@ async fn run_native_agent_loop(
     session_id: &str,
     messages: Vec<ChatMessage>,
     mods: ai::ModelMods,
-    prompt_config: context::PromptConfig,
+    prompt_config: PromptConfig,
     cancellation_token: crate::runtime::CancellationToken,
 ) -> Result<Vec<ChatMessage>, AgentLoopError> {
     let summary = tokio::time::timeout(
@@ -605,21 +603,25 @@ async fn run_native_agent_loop(
     })?;
     let runtime = crate::runtime::AgentRuntime::new();
     let result = runtime
-        .run(crate::runtime::AgentRuntimeConfig {
-            session_id: session_id.to_string(),
-            messages,
-            mods: mods.clone(),
-            prompt_config,
-            summary: Some(summary),
-            system_prompt: None,
-            provider,
-            read_only: false,
-            delegate_depth_remaining: 2,
-            budgets: crate::runtime::AgentBudgets::default(),
-            cancellation_token,
-            tool_host: crate::runtime::AppToolHost::new(workspace.clone(), mods),
-            on_event,
-        })
+        .run(
+            crate::runtime::AgentRuntimeConfig::builder()
+                .session_id(session_id.to_string())
+                .messages(messages)
+                .mods(mods.clone())
+                .prompt_config(prompt_config)
+                .summary(summary)
+                .provider(provider)
+                .delegate_depth_remaining(2)
+                .budgets(crate::runtime::AgentBudgets::default())
+                .cancellation_token(cancellation_token)
+                .shared_tool_host(crate::runtime::AppToolHost::new(workspace.clone(), mods))
+                .on_event(move |event| on_event(event))
+                .build()
+                .map_err(|error| AgentLoopError {
+                    message: error.to_string(),
+                    messages: Vec::new(),
+                })?,
+        )
         .await
         .map_err(|error| {
             crate::extensions::hook_bus(workspace).emit(crate::extensions::hooks::HookEvent::Error {

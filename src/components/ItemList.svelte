@@ -23,7 +23,7 @@
         <span>{item.subtitle}</span>
       </button>
       {#if item.actions?.length}
-        <div class="actions">
+        <div class="item-actions">
           {#each item.actions as action}
             <button class:danger={action.danger} type="button" on:click={action.onClick}>{action.label}</button>
           {/each}
@@ -68,6 +68,7 @@
     padding: 9px 10px;
     color: var(--text);
     border: 0;
+    border-radius: 0;
     background: transparent;
     cursor: pointer;
   }
@@ -77,19 +78,27 @@
     width: 100%;
   }
 
-  .actions {
+  .item-actions {
     display: grid;
     gap: 0;
-    border-left: 1px solid var(--panel);
+    border-left: 1px solid var(--border);
+    background: color-mix(in srgb, var(--black) 18%, transparent);
   }
 
-  .actions button + button {
-    border-top: 1px solid var(--panel);
+  .item-actions button {
+    min-width: 54px;
+    min-height: 0;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    justify-content: center;
+    padding: 0 9px;
+    text-align: center;
+    font-size: 11px;
   }
 
-  .item-row.active .actions,
-  .item-row.active .actions button + button {
-    border-color: var(--panel);
+  .item-actions button + button {
+    border-top: 1px solid var(--border);
   }
 
   button:hover,

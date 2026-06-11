@@ -52,8 +52,8 @@
   }
 
   .modal.fixed {
-    width: min(50vw, calc(100vw - 28px));
-    height: min(50vh, calc(100vh - 28px));
+    width: min(70vw, calc(100vw - 28px));
+    height: min(72vh, calc(100vh - 28px));
     grid-template-rows: auto minmax(0, 1fr) auto;
   }
 

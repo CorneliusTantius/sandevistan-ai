@@ -1,4 +1,7 @@
-use crate::{context, provider::{self, ProviderRuntime}};
+use sandevistan_core::{
+    context::DEFAULT_CONTEXT_CHARS, provider, ProviderConfig as CoreProviderConfig, ProviderKind,
+    PromptConfig,
+};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, env, fs, path::PathBuf, sync::OnceLock};
 
@@ -535,7 +538,7 @@ pub fn save_config(update: AiConfigUpdate) -> Result<AiConfig, String> {
                 update
                     .context_chars
                     .or_else(|| previous.as_ref().and_then(|entry| entry.context_chars))
-                    .unwrap_or(context::DEFAULT_CONTEXT_CHARS),
+                    .unwrap_or(DEFAULT_CONTEXT_CHARS),
             )),
         },
     );
@@ -619,10 +622,12 @@ pub fn delete_provider(request: DeleteProviderRequest) -> Result<AiConfig, Strin
 
 pub async fn complete_chat(messages: Vec<ChatMessage>) -> Result<String, String> {
     let (runtime, messages) = runtime_request(messages)?;
-    provider::complete(runtime, messages).await
+    provider::complete(runtime, messages)
+        .await
+        .map_err(|error| error.to_string())
 }
 
-pub fn provider_config_for_model(model: Option<String>) -> Result<ProviderRuntime, String> {
+pub fn provider_config_for_model(model: Option<String>) -> Result<CoreProviderConfig, String> {
     runtime_request_for_model(
         vec![ChatMessage {
             role: "user".into(),
@@ -633,8 +638,8 @@ pub fn provider_config_for_model(model: Option<String>) -> Result<ProviderRuntim
     .map(|(runtime, _)| runtime)
 }
 
-pub fn prompt_config() -> context::PromptConfig {
-    context::PromptConfig::from_context_chars(runtime_config().context_chars)
+pub fn prompt_config() -> PromptConfig {
+    PromptConfig::from_context_chars(runtime_config().context_chars)
 }
 
 pub fn active_mods() -> ModelMods {
@@ -643,14 +648,14 @@ pub fn active_mods() -> ModelMods {
 
 fn runtime_request(
     messages: Vec<ChatMessage>,
-) -> Result<(ProviderRuntime, Vec<ChatMessage>), String> {
+) -> Result<(CoreProviderConfig, Vec<ChatMessage>), String> {
     runtime_request_for_model(messages, None)
 }
 
 fn runtime_request_for_model(
     messages: Vec<ChatMessage>,
     model_override: Option<String>,
-) -> Result<(ProviderRuntime, Vec<ChatMessage>), String> {
+) -> Result<(CoreProviderConfig, Vec<ChatMessage>), String> {
     if messages.is_empty() {
         return Err("messages are empty".into());
     }
@@ -664,8 +669,8 @@ fn runtime_request_for_model(
     }
 
     Ok((
-        ProviderRuntime {
-            kind: config.kind,
+        CoreProviderConfig {
+            kind: provider_kind(&config.kind),
             api_base: config.api_base,
             api_key: config.api_key,
             api_key_header: config.api_key_header,
@@ -673,6 +678,13 @@ fn runtime_request_for_model(
         },
         normalize_messages(messages),
     ))
+}
+
+fn provider_kind(kind: &str) -> ProviderKind {
+    match kind {
+        "openai-responses" => ProviderKind::OpenAiResponses,
+        _ => ProviderKind::OpenAiChat,
+    }
 }
 
 fn normalize_messages(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
@@ -778,7 +790,7 @@ fn runtime_config_for_model(model_override: Option<String>) -> RuntimeConfig {
     let context_chars = clean_context_chars(
         model_entry
             .and_then(|model| model.context_chars)
-            .unwrap_or(context::DEFAULT_CONTEXT_CHARS),
+            .unwrap_or(DEFAULT_CONTEXT_CHARS),
     );
     let agents = read_toml::<AgentsConfig>(config_dir.join("agents.toml"));
     let mods = model_mods(&app, &agents, &active_profile);
@@ -838,7 +850,7 @@ fn model_options(models: &ModelsConfig) -> Vec<ModelOption> {
             context_chars: clean_context_chars(
                 model
                     .context_chars
-                    .unwrap_or(context::DEFAULT_CONTEXT_CHARS),
+                    .unwrap_or(DEFAULT_CONTEXT_CHARS),
             ),
         })
         .collect::<Vec<_>>();
