@@ -45,10 +45,16 @@ OpenAI-compatible providers also work: use their API base URL and model ID.
 
 ```mermaid
 graph TD
-  Profile[Profile] --> Agent[Main agent]
-  Profile --> Subagents[Enabled subagents]
-  Agent --> Chat[Chat behavior]
-  Subagents --> Tasks[Delegated tasks]
+  Profile["Profile<br/>saved preset for model, agent, tools"]
+  Agent["Main agent<br/>handles chat and coding behavior"]
+  Subagents["Enabled subagents<br/>specialized helpers selected in mods"]
+  Chat["Chat session<br/>uses the active profile settings"]
+  Tasks["Delegated tasks<br/>scout, reviewer, planner, etc."]
+
+  Profile --> Agent
+  Profile --> Subagents
+  Agent --> Chat
+  Subagents --> Tasks
 ```
 
 ## Tech Stack
