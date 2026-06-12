@@ -6,16 +6,20 @@
   export let id = "main";
 
   let host: HTMLDivElement;
-  let term: { open: (el: HTMLElement) => void; onData: (cb: (data: string) => void) => void; write: (data: string) => void; resize: (cols: number, rows: number) => void; dispose: () => void } | undefined;
+  let term: { open: (el: HTMLElement) => void; onData: (cb: (data: string) => void) => { dispose: () => void }; write: (data: string) => void; resize: (cols: number, rows: number) => void; dispose: () => void } | undefined;
+  let inputDisposable: { dispose: () => void } | undefined;
   let unlisten: UnlistenFn | undefined;
   let resizeObserver: ResizeObserver | undefined;
   let terminalStarted = false;
+  let destroyed = false;
 
   onMount(async () => {
     const [{ Terminal }] = await Promise.all([
       import("@xterm/xterm"),
       import("@xterm/xterm/css/xterm.css"),
     ]);
+
+    if (destroyed) return;
 
     term = new Terminal({
       cursorBlink: false,
@@ -48,18 +52,24 @@
       },
     });
     term.open(host);
-    term.onData((data) => {
+    inputDisposable?.dispose();
+    inputDisposable = term.onData((data) => {
       if (terminalStarted) void invoke("terminal_write", { request: { id, data } });
     });
     unlisten = await listen<{ id: string; data: string }>("terminal-output", (event) => {
-      if (event.payload.id === id) term?.write(event.payload.data);
+      if (!destroyed && event.payload.id === id) term?.write(event.payload.data);
     });
+    if (destroyed) return;
 
     const size = terminalSize();
     term.resize(size.cols, size.rows);
+    await invoke("terminal_stop", { request: { id } });
+    if (destroyed) return;
     await invoke("terminal_start", { request: { id, cols: size.cols, rows: size.rows } });
+    if (destroyed) return;
     terminalStarted = true;
 
+    if (destroyed) return;
     const resize = () => resizeTerminal();
     resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(host);
@@ -81,10 +91,17 @@
   }
 
   onDestroy(() => {
+    destroyed = true;
+    terminalStarted = false;
+    inputDisposable?.dispose();
+    inputDisposable = undefined;
     resizeObserver?.disconnect();
+    resizeObserver = undefined;
     if (unlisten) unlisten();
+    unlisten = undefined;
     void invoke("terminal_stop", { request: { id } });
-    if (term) term.dispose();
+    term?.dispose();
+    term = undefined;
   });
 </script>
 
