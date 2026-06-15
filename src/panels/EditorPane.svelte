@@ -135,10 +135,10 @@
   ]);
 
   const editorTheme = EditorView.theme({
-    "&": { height: "100%", backgroundColor: "var(--black)", color: "var(--text)" },
+    "&": { height: "100%", backgroundColor: "var(--surface)", color: "var(--text)" },
     ".cm-scroller": { fontFamily: "inherit", lineHeight: "1.45" },
     ".cm-content": { padding: "10px 12px", caretColor: "var(--accent)" },
-    ".cm-gutters": { backgroundColor: "var(--black)", color: "#5f6f80", borderRight: "1px solid var(--panel)" },
+    ".cm-gutters": { backgroundColor: "var(--surface)", color: "#5f6f80", borderRight: "1px solid var(--border)" },
     ".cm-activeLine": { backgroundColor: "rgba(26, 35, 45, 0.55)" },
     ".cm-activeLineGutter": { backgroundColor: "rgba(26, 35, 45, 0.75)", color: "var(--text)" },
     "&.cm-focused": { outline: "none" },
@@ -306,8 +306,8 @@
     overflow: hidden;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
-    border: 1px solid var(--panel);
-    background: var(--black);
+    border: 0;
+    background: var(--surface);
   }
 
   .editor-toolbar {
@@ -315,11 +315,11 @@
     grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 8px;
-    padding: 8px 10px;
-    border-bottom: 1px solid var(--panel);
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
     color: var(--muted);
     font-size: 12px;
-    background: var(--panel);
+    background: var(--bg);
   }
 
   .editor-toolbar > span:first-child {
@@ -363,7 +363,7 @@
   .merge-wrap :global(.cm-mergeView) {
     height: 100%;
     overflow: auto;
-    background: var(--black);
+    background: var(--surface);
   }
 
   .merge-wrap :global(.cm-mergeViewEditors) {

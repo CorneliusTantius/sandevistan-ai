@@ -29,7 +29,7 @@
       rows: 28,
       cols: 100,
       theme: {
-        background: "#111820",
+        background: "#0D1117",
         foreground: "#EEEEEE",
         cursor: "#00ADB5",
         selectionBackground: "#393E46",
@@ -115,8 +115,8 @@
     min-height: 0;
     overflow: hidden;
     padding: 8px;
-    border: 1px solid var(--panel);
-    background: var(--black);
+    border: 0;
+    background: var(--surface);
   }
 
   :global(.xterm) {
@@ -131,6 +131,6 @@
   }
 
   :global(.xterm-viewport) {
-    background: var(--black) !important;
+    background: var(--surface) !important;
   }
 </style>

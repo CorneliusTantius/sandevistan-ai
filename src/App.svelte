@@ -53,6 +53,11 @@
   let mentionResults: FileEntry[] = [];
   let mentionIndex = 0;
   let mentionTimer = 0;
+  type PromptShortcut = { name: string; template: string };
+  let promptTemplateDraft: PromptShortcut = { name: "", template: "" };
+  let shortcutStart = -1;
+  let shortcutResults: PromptShortcut[] = [];
+  let shortcutIndex = 0;
   let promptUndoStack: TextSnapshot[] = [];
   let promptRedoStack: TextSnapshot[] = [];
   let busy = false;
@@ -118,7 +123,7 @@
   let providerDraft = { ...defaultProviderDraft };
   let modsDraft: AiMods = { ...baseMods };
   let modsProfile = "default";
-  let modsTab: "general" | "profile" | "providers" | "models" | "agents" | "subagents" | "mcp" | "extensions" = "profile";
+  let modsTab: "general" | "profile" | "templates" | "providers" | "models" | "agents" | "subagents" | "mcp" | "extensions" = "profile";
   let addingAgent = false;
   let addingSubagent = false;
   let editingExtension = false;
@@ -531,7 +536,35 @@
 
   function inputPrompt(event: Event) {
     prompt = (event.currentTarget as HTMLTextAreaElement).value;
-    updateMention(event.currentTarget as HTMLTextAreaElement);
+    updatePromptCompletions(event.currentTarget as HTMLTextAreaElement);
+  }
+
+  function cleanTemplateName(value: string) {
+    return value.trim().replace(/^!+/, "").replace(/\s+/g, "-");
+  }
+
+  function addPromptTemplate() {
+    const name = cleanTemplateName(promptTemplateDraft.name);
+    const template = promptTemplateDraft.template.trim();
+    if (!name || !template) return;
+    const rest = modsDraft.prompt_templates.filter((item) => item.name !== name);
+    modsDraft = { ...modsDraft, prompt_templates: [...rest, { name, template }] };
+    promptTemplateDraft = { name: "", template: "" };
+  }
+
+  function updatePromptTemplate(index: number, patch: Partial<PromptShortcut>) {
+    const next = [...modsDraft.prompt_templates];
+    next[index] = { ...next[index], ...patch };
+    modsDraft = { ...modsDraft, prompt_templates: next };
+  }
+
+  function deletePromptTemplate(index: number) {
+    modsDraft = { ...modsDraft, prompt_templates: modsDraft.prompt_templates.filter((_, i) => i !== index) };
+  }
+
+  function updatePromptCompletions(target = promptEl) {
+    updateMention(target);
+    updateShortcut(target);
   }
 
   function mentionToken(target: HTMLTextAreaElement) {
@@ -564,6 +597,45 @@
       window.clearTimeout(mentionTimer);
       mentionTimer = 0;
     }
+  }
+
+  function shortcutToken(target: HTMLTextAreaElement) {
+    const before = prompt.slice(0, target.selectionStart);
+    const match = /(^|\s)!([\w.-]*)$/.exec(before);
+    if (!match) return null;
+    return { start: before.length - match[2].length - 1, query: match[2].toLowerCase() };
+  }
+
+  function updateShortcut(target = promptEl) {
+    if (!target) return closeShortcut();
+    const token = shortcutToken(target);
+    if (!token) return closeShortcut();
+    shortcutStart = token.start;
+    shortcutIndex = 0;
+    shortcutResults = modsDraft.prompt_templates
+      .filter((item) => item.name.toLowerCase().startsWith(token.query))
+      .slice(0, 8);
+  }
+
+  function closeShortcut() {
+    shortcutStart = -1;
+    shortcutResults = [];
+    shortcutIndex = 0;
+  }
+
+  function insertShortcut(item: PromptShortcut) {
+    if (!promptEl || shortcutStart < 0) return;
+    const start = shortcutStart;
+    const end = promptEl.selectionStart;
+    const token = `!${item.name}`;
+    const nextPrompt = `${prompt.slice(0, start)}${token} ${prompt.slice(end)}`;
+    const pos = start + token.length + 1;
+    prompt = nextPrompt;
+    closeShortcut();
+    requestAnimationFrame(() => {
+      promptEl.focus();
+      promptEl.setSelectionRange(pos, pos);
+    });
   }
 
   async function runMentionSearch(query: string) {
@@ -775,11 +847,12 @@
       subagent_max_concurrency: Math.min(5, Math.max(1, Number(value.subagent_max_concurrency) || 3)),
       mcp_enabled: value.mcp_enabled ?? false,
       mcp_config: value.mcp_config || "",
+      prompt_templates: Array.isArray(value.prompt_templates) ? value.prompt_templates : [],
     };
   }
 
   function defaultMods(): AiMods {
-    return { main_model: config.model || "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: config.rtk_available, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "", mcp_enabled: false, mcp_config: "" };
+    return { main_model: config.model || "gpt-4o-mini", main_agent: "custom", subagents: ["scout", "reviewer", "planner"], persona: "", thinking_level: "auto", prompt_injection: "", rtk_enabled: config.rtk_available, shell_enabled: false, git_panel_enabled: true, subagents_enabled: true, subagent_model: "", subagent_max_concurrency: 3, subagents_config: "", mcp_enabled: false, mcp_config: "", prompt_templates: [] };
   }
 
   function toggleSubagent(name: string) {
@@ -1292,6 +1365,19 @@
     return path.split(/[\\/]/).filter(Boolean).pop() || path;
   }
 
+  function fileIcon(path: string) {
+    const lower = path.toLowerCase();
+    if (/\.(svelte)$/.test(lower)) return "◆";
+    if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(lower)) return "TS";
+    if (/\.(css|scss|sass|less)$/.test(lower)) return "#";
+    if (/\.(json|jsonc)$/.test(lower)) return "{}";
+    if (/\.(md|markdown)$/.test(lower)) return "MD";
+    if (/\.(rs)$/.test(lower)) return "RS";
+    if (/\.(ya?ml)$/.test(lower)) return "YML";
+    if (/\.(toml)$/.test(lower)) return "TOML";
+    return "•";
+  }
+
   function workspaceName(path: string) {
     return fileName(path) || path || "choose workspace";
   }
@@ -1413,6 +1499,20 @@
     return { prompt: `${input}\n\nReferenced files:\n${files.join("\n\n")}`, labels };
   }
 
+  function expandPromptShortcuts(input: string) {
+    const shortcuts = new Map(modsDraft.prompt_templates.map((item) => [item.name.toLowerCase(), item]));
+    const used: PromptShortcut[] = [];
+    const body = input.replace(/(^|\s)!([\w.-]+)(?=\s|$)/g, (match, prefix: string, name: string) => {
+      const item = shortcuts.get(name.toLowerCase());
+      if (!item) return match;
+      used.push(item);
+      return prefix;
+    }).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+    if (!used.length) return input;
+    const injection = used.map((item) => `!${item.name}\n${item.template}`).join("\n\n");
+    return `${body ? `${body}\n\n` : ""}Shortcut prompt templates:\n${injection}`;
+  }
+
   async function sendPrompt() {
     const input = prompt.trim();
     if (!input || busy) return;
@@ -1424,7 +1524,8 @@
     addMessage("user", input);
 
     try {
-      const expanded = await expandFileReferences(input);
+      const shortcutExpanded = expandPromptShortcuts(input);
+      const expanded = await expandFileReferences(shortcutExpanded);
       if (expanded.labels.length) addMessage("tool", `file references\nstatus: ok\n${expanded.labels.join("\n")}`);
       await invoke("chat_send", { prompt: expanded.prompt });
       markActiveSessionRunning(true);
@@ -1521,6 +1622,24 @@
 
   function keydown(event: KeyboardEvent) {
     if (handlePromptUndoRedo(event)) return;
+
+    if (shortcutResults.length) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        shortcutIndex = (shortcutIndex + (event.key === "ArrowDown" ? 1 : -1) + shortcutResults.length) % shortcutResults.length;
+        return;
+      }
+      if (event.key === "Tab" || event.key === "Enter") {
+        event.preventDefault();
+        insertShortcut(shortcutResults[shortcutIndex]);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeShortcut();
+        return;
+      }
+    }
 
     if (mentionResults.length) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -1652,20 +1771,24 @@
     <section class="center">
       <div class="tabbar">
         {#if chatOpen}
-          <button class:active={activeTab === "chat"} class="tab" type="button" on:click={() => (activeTab = "chat")}>{sessionLabel}</button>
-          <button class="tab close-tab" type="button" on:click={closeChatTab}>×</button>
+          <button class:active={activeTab === "chat"} class="tab" type="button" on:click={() => (activeTab = "chat")}>
+            <span class="tab-icon">▣</span><span class="tab-label">{sessionLabel}</span><span class="tab-close" role="button" tabindex="0" on:click|stopPropagation={closeChatTab} on:keydown|stopPropagation={(event) => event.key === "Enter" && closeChatTab()}>×</span>
+          </button>
         {/if}
         {#if terminalOpen}
-          <button class:active={activeTab === "terminal"} class="tab" type="button" on:click={() => (activeTab = "terminal")}>terminal</button>
-          <button class="tab close-tab" type="button" on:click={closeTerminal}>×</button>
+          <button class:active={activeTab === "terminal"} class="tab" type="button" on:click={() => (activeTab = "terminal")}>
+            <span class="tab-icon">$</span><span class="tab-label">terminal</span><span class="tab-close" role="button" tabindex="0" on:click|stopPropagation={closeTerminal} on:keydown|stopPropagation={(event) => event.key === "Enter" && closeTerminal()}>×</span>
+          </button>
         {/if}
         {#each openFiles as file}
-          <button class:active={activeTab === file.path} class="tab" type="button" title={file.path} on:click={() => (activeTab = file.path)}>{fileName(file.path)}{file.dirty ? " *" : ""}{file.stale ? " !" : ""}</button>
-          <button class="tab close-tab" type="button" on:click={() => closeTab(file.path)}>×</button>
+          <button class:active={activeTab === file.path} class:dirty={file.dirty} class:stale={file.stale} class="tab" type="button" title={file.path} on:click={() => (activeTab = file.path)}>
+            <span class="tab-icon">{fileIcon(file.path)}</span><span class="tab-label">{fileName(file.path)}</span>{#if file.dirty}<span class="dirty-dot" title="unsaved"></span>{/if}{#if file.stale}<span class="stale-mark" title="changed on disk">!</span>{/if}<span class="tab-close" role="button" tabindex="0" on:click|stopPropagation={() => closeTab(file.path)} on:keydown|stopPropagation={(event) => event.key === "Enter" && closeTab(file.path)}>×</span>
+          </button>
         {/each}
         {#each diffTabs as tab}
-          <button class:active={activeTab === tab.id} class="tab" type="button" title={tab.path || "workspace"} on:click={() => (activeTab = tab.id)}>{tab.title}</button>
-          <button class="tab close-tab" type="button" on:click={() => closeDiffTab(tab.id)}>×</button>
+          <button class:active={activeTab === tab.id} class="tab" type="button" title={tab.path || "workspace"} on:click={() => (activeTab = tab.id)}>
+            <span class="tab-icon">⇄</span><span class="tab-label">{tab.title}</span><span class="tab-close" role="button" tabindex="0" on:click|stopPropagation={() => closeDiffTab(tab.id)} on:keydown|stopPropagation={(event) => event.key === "Enter" && closeDiffTab(tab.id)}>×</span>
+          </button>
         {/each}
       </div>
 
@@ -1708,6 +1831,9 @@
           {mentionResults}
           {mentionIndex}
           {insertMention}
+          {shortcutResults}
+          {shortcutIndex}
+          {insertShortcut}
           {prompt}
           {rememberPromptSnapshot}
           {inputPrompt}
@@ -1766,6 +1892,7 @@
         <nav class="mods-nav" aria-label="mods sections">
           <button class:active={modsTab === "general"} class="ghost" type="button" on:click={() => (modsTab = "general")}>general</button>
           <button class:active={modsTab === "profile"} class="ghost" type="button" on:click={() => (modsTab = "profile")}>profile</button>
+          <button class:active={modsTab === "templates"} class="ghost" type="button" on:click={() => (modsTab = "templates")}>templates</button>
           <button class:active={modsTab === "providers"} class="ghost" type="button" on:click={() => (modsTab = "providers")}>providers</button>
           <button class:active={modsTab === "models"} class="ghost" type="button" on:click={() => (modsTab = "models")}>models</button>
           <button class:active={modsTab === "agents"} class="ghost" type="button" on:click={() => (modsTab = "agents")}>agents</button>
@@ -1791,6 +1918,24 @@ features      git:${featureGit ? "on" : "off"} watcher:${featureFileWatcher ? "o
               <Checkbox checked={featureFileWatcher} label={`file watcher: ${featureFileWatcher ? "on" : "off"}`} onChange={(checked) => void setFeature("file_watcher", checked)} />
               <Checkbox checked={featureContentSearch} label={`content search: ${featureContentSearch ? "on" : "off"}`} onChange={(checked) => void setFeature("content_search", checked)} />
             </div>
+          {:else if modsTab === "templates"}
+            <div class="feature-list compact-feature-list">
+              <div class="side-title">prompt templates</div>
+              {#each modsDraft.prompt_templates as item, index (index)}
+                <div class="provider-card">
+                  <label>Shortcut<input value={item.name} placeholder="al" on:input={(event) => updatePromptTemplate(index, { name: cleanTemplateName((event.currentTarget as HTMLInputElement).value) })} /></label>
+                  <label>Template<textarea value={item.template} rows="7" placeholder="Rich markdown prompt..." on:input={(event) => updatePromptTemplate(index, { template: (event.currentTarget as HTMLTextAreaElement).value })}></textarea></label>
+                  <button class="ghost danger" type="button" on:click={() => deletePromptTemplate(index)}>delete</button>
+                </div>
+              {/each}
+              <div class="provider-card">
+                <div class="side-title">add template</div>
+                <label>Shortcut<input value={promptTemplateDraft.name} placeholder="al" on:input={(event) => (promptTemplateDraft = { ...promptTemplateDraft, name: (event.currentTarget as HTMLInputElement).value })} /></label>
+                <label>Template<textarea value={promptTemplateDraft.template} rows="7" placeholder="Markdown supported: headings, lists, code blocks..." on:input={(event) => (promptTemplateDraft = { ...promptTemplateDraft, template: (event.currentTarget as HTMLTextAreaElement).value })}></textarea></label>
+                <button class="ghost" type="button" on:click={addPromptTemplate}>add template</button>
+              </div>
+            </div>
+            <p class="hint">Type !name in chat. Tab/Enter completes token only; template is injected on send. Saved in config.toml.</p>
           {:else if modsTab === "profile"}
             <label>Profile<SelectBox fit value={modsProfile} options={profileOptions} onChange={chooseProfile} /></label>
             <label>Profile name<input bind:value={modsProfile} placeholder="default" /></label>

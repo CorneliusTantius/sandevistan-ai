@@ -49,6 +49,12 @@ pub struct ActiveProfileUpdate {
     pub(super) profile: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PromptTemplate {
+    pub(super) name: String,
+    pub(super) template: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ModsUpdate {
     pub(super) profile: Option<String>,
@@ -64,6 +70,7 @@ pub struct ModsUpdate {
     pub(super) subagents_config: Option<String>,
     pub(super) mcp_enabled: Option<bool>,
     pub(super) mcp_config: Option<String>,
+    pub(super) prompt_templates: Option<Vec<PromptTemplate>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,6 +147,7 @@ pub struct ProfileOption {
     pub(super) subagents_config: String,
     pub(super) mcp_enabled: bool,
     pub(super) mcp_config: String,
+    pub(super) prompt_templates: Vec<PromptTemplate>,
 }
 
 #[derive(Debug)]
@@ -190,6 +198,7 @@ pub(super) struct ProfileConfig {
     pub(super) subagents_config: Option<String>,
     pub(super) mcp_enabled: Option<bool>,
     pub(super) mcp_config: Option<String>,
+    pub(super) prompt_templates: Option<Vec<PromptTemplate>>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]

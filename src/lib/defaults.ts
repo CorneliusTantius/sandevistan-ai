@@ -16,6 +16,7 @@ export const baseMods: AiMods = {
   subagents_config: "",
   mcp_enabled: false,
   mcp_config: "",
+  prompt_templates: [],
 };
 
 export const emptyConfig: AiConfig = {

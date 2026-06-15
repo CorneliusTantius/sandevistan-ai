@@ -3,9 +3,10 @@
   export let role: Role;
   export let content = "";
   export let streaming = false;
-  const LONG_LIMIT = 300;
+  const LINE_LIMIT = 15;
   let expanded = false;
   let copied = false;
+  let toolLevel = 0;
 
   type Block =
     | { kind: "code"; lang: string; text: string }
@@ -15,10 +16,10 @@
     | { kind: "hr" }
     | { kind: "text"; text: string };
 
-  let toolLevel = 0;
   $: renderedContent = renderedOnly(content);
-  $: isLong = role === "assistant" && !streaming && renderedContent.trim().length > LONG_LIMIT;
-  $: visibleContent = isLong && !expanded ? renderedContent.slice(0, LONG_LIMIT) : renderedContent;
+  $: renderedLines = renderedContent.split("\n");
+  $: isLong = role === "assistant" && !streaming && renderedLines.length > LINE_LIMIT;
+  $: visibleContent = isLong && !expanded ? renderedLines.slice(0, LINE_LIMIT).join("\n") : renderedContent;
   $: blocks = parseMarkdown(visibleContent);
   $: toolTitle = content.split("\n", 1)[0] || "tool";
   $: toolBody = content.split("\n").slice(1).join("\n").trim();
@@ -64,13 +65,17 @@
         continue;
       }
 
-      if (line.startsWith("```")) {
-        const lang = line.slice(3).trim();
+      const fence = readFence(line);
+      if (fence) {
         const code: string[] = [];
         i++;
-        while (i < lines.length && !lines[i].startsWith("```")) code.push(lines[i++]);
+        while (i < lines.length) {
+          const close = readFence(lines[i]);
+          if (close && close.char === fence.char && close.length >= fence.length && !close.info) break;
+          code.push(lines[i++]);
+        }
         if (i < lines.length) i++;
-        blocks.push({ kind: "code", lang, text: code.join("\n") });
+        blocks.push({ kind: "code", lang: fence.info, text: code.join("\n") });
         continue;
       }
 
@@ -105,13 +110,19 @@
       }
 
       const text: string[] = [];
-      while (i < lines.length && lines[i].trim() && !lines[i].startsWith("```") && !lines[i].startsWith("#") && !/^\s*-{3,}\s*$/.test(lines[i]) && !/^\s*[-*]\s+/.test(lines[i]) && !isTableStart(lines, i)) {
+      while (i < lines.length && lines[i].trim() && !readFence(lines[i]) && !lines[i].startsWith("#") && !/^\s*-{3,}\s*$/.test(lines[i]) && !/^\s*[-*]\s+/.test(lines[i]) && !isTableStart(lines, i)) {
         text.push(lines[i++]);
       }
       blocks.push({ kind: "text", text: text.join("\n") });
     }
 
     return blocks;
+  }
+
+  function readFence(line: string) {
+    const match = /^( {0,3})(`{3,}|~{3,})([^`~]*)$/.exec(line);
+    if (!match) return null;
+    return { char: match[2][0], length: match[2].length, info: match[3].trim() };
   }
 
   function isTableRow(line = "") {
@@ -126,6 +137,18 @@
     return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
   }
 
+  function inlineMarkdown(value: string) {
+    return escapeHtml(value)
+      .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  }
+
+  function highlightedCode(value: string) {
+    return escapeHtml(value);
+  }
+
   function escapeHtml(value: string) {
     return value
       .replace(/&/g, "&amp;")
@@ -133,13 +156,6 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
-  }
-
-  function inlineMarkdown(value: string) {
-    return escapeHtml(value)
-      .replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>')
-      .replace(/==([^=\n]+)==/g, "<mark>$1</mark>")
-      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   }
 
   async function copyText(value: string) {
@@ -151,25 +167,6 @@
   function toggleExpand() {
     if (isLong) expanded = !expanded;
   }
-
-  function highlightedCode(value: string, lang: string) {
-    const html = escapeHtml(value);
-    const normalized = lang.toLowerCase();
-    if (/^(js|jsx|ts|tsx|svelte|json)$/.test(normalized)) {
-      return html
-        .replace(/(&quot;.*?&quot;|'.*?'|`.*?`)/g, '<span class="tok-string">$1</span>')
-        .replace(/\b(const|let|var|function|return|if|else|for|while|class|type|interface|import|from|export|async|await|try|catch|throw|new|true|false|null|undefined)\b/g, '<span class="tok-keyword">$1</span>')
-        .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-number">$1</span>')
-        .replace(/(\/\/.*)$/gm, '<span class="tok-comment">$1</span>');
-    }
-    if (/^(sh|bash|zsh|shell)$/.test(normalized)) {
-      return html
-        .replace(/(#.*)$/gm, '<span class="tok-comment">$1</span>')
-        .replace(/\b(cd|ls|cat|grep|rg|npm|git|cargo|sudo|echo|export)\b/g, '<span class="tok-keyword">$1</span>')
-        .replace(/(--?[\w-]+)/g, '<span class="tok-number">$1</span>');
-    }
-    return html;
-  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
@@ -178,7 +175,7 @@
     <span>{role}</span>
     <div class="message-actions">
       {#if isLong}
-        <button class="mini message-expand" type="button" on:click|stopPropagation={toggleExpand}>{expanded ? "collapse" : `expand (${Math.round(renderedContent.length / 1000)}k)`}</button>
+        <button class="mini message-expand" type="button" on:click|stopPropagation={toggleExpand}>{expanded ? "collapse" : `expand (${renderedLines.length} lines)`}</button>
       {/if}
       {#if role !== "tool"}
         <button class="mini message-copy" type="button" on:click|stopPropagation={() => void copyText(renderedContent)}>{copied ? "copied" : "copy"}</button>
@@ -197,7 +194,7 @@
       <div class="markdown">
         {#each blocks as block}
           {#if block.kind === "code"}
-            <div class="code-wrap"><button class="mini code-copy" type="button" on:click={() => void copyText(block.text)}>copy</button><pre class="code"><code>{@html highlightedCode(block.text, block.lang)}</code></pre></div>
+            <div class="code-wrap"><button class="mini code-copy" type="button" on:click|stopPropagation={() => void copyText(block.text)}>copy</button><pre class="code"><code>{@html highlightedCode(block.text)}</code></pre></div>
           {:else if block.kind === "heading"}
             <h3>{@html inlineMarkdown(block.text)}</h3>
           {:else if block.kind === "list"}
@@ -325,7 +322,7 @@
   }
 
   .error span,
-  .error p {
+  :global(.error p) {
     color: var(--danger);
   }
 
@@ -334,58 +331,59 @@
     gap: 10px;
   }
 
-  p,
-  h3,
-  ul,
-  hr {
+  :global(.markdown p),
+  :global(.markdown h3),
+  :global(.markdown h4),
+  :global(.markdown h5),
+  :global(.markdown h6),
+  :global(.markdown ul),
+  :global(.markdown ol),
+  :global(.markdown hr) {
     margin: 0;
   }
 
-  hr {
+  :global(.markdown hr) {
     width: 100%;
     border: 0;
     border-top: 1px solid var(--border);
   }
 
-  .table-wrap {
-    overflow: auto;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--black);
-  }
-
-  table {
+  :global(.markdown table) {
     width: 100%;
     border-collapse: collapse;
     color: var(--text);
     font-size: 13px;
   }
 
-  th,
-  td {
+  :global(.markdown th),
+  :global(.markdown td) {
     padding: 6px 8px;
     border: 1px solid var(--border);
     text-align: left;
     vertical-align: top;
   }
 
-  th {
+  :global(.markdown th) {
     color: var(--text);
     background: var(--surface);
     font-weight: 700;
   }
 
-  h3 {
+  :global(.markdown h3),
+  :global(.markdown h4),
+  :global(.markdown h5),
+  :global(.markdown h6) {
     color: var(--text);
     font-size: 14px;
   }
 
-  ul {
+  :global(.markdown ul),
+  :global(.markdown ol) {
     padding-left: 18px;
   }
 
-  p,
-  li {
+  :global(.markdown p),
+  :global(.markdown li) {
     color: var(--text);
     white-space: pre-wrap;
   }
@@ -397,30 +395,6 @@
     background: var(--black);
     color: var(--muted);
     font: inherit;
-  }
-
-  :global(mark) {
-    padding: 0 3px;
-    background: color-mix(in srgb, var(--assistant) 24%, transparent);
-    color: var(--text);
-  }
-
-  :global(.tok-keyword) {
-    color: var(--assistant);
-    font-weight: 700;
-  }
-
-  :global(.tok-string) {
-    color: var(--alt);
-  }
-
-  :global(.tok-number) {
-    color: var(--muted);
-  }
-
-  :global(.tok-comment) {
-    color: color-mix(in srgb, var(--muted) 72%, transparent);
-    font-style: italic;
   }
 
   .mini {
@@ -448,31 +422,7 @@
     opacity: 1;
   }
 
-  .code-wrap {
-    position: relative;
-    min-width: 0;
-  }
-
-  .code {
-    padding-top: 32px;
-  }
-
-  .code-copy {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    border-radius: var(--radius-sm);
-    background: var(--bg);
-  }
-
-  .expand {
-    width: fit-content;
-    justify-self: start;
-    margin: 0 0 10px 12px;
-    font-size: 12px;
-  }
-
-  .code,
+  :global(.code),
   .tool-body {
     margin: 0;
     overflow: auto;

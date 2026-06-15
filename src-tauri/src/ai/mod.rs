@@ -99,6 +99,7 @@ pub fn set_mods(update: ModsUpdate) -> Result<AiConfig, String> {
             subagents_config: update.subagents_config.and_then(clean_optional),
             mcp_enabled: update.mcp_enabled,
             mcp_config: update.mcp_config.and_then(clean_optional),
+            prompt_templates: update.prompt_templates.map(clean_prompt_templates),
         },
     );
     app.active_profile = Some(profile);
@@ -646,6 +647,17 @@ fn clean_subagent_concurrency(value: usize) -> usize {
     value.clamp(1, 8)
 }
 
+fn clean_prompt_templates(items: Vec<types::PromptTemplate>) -> Vec<types::PromptTemplate> {
+    items
+        .into_iter()
+        .filter_map(|item| {
+            let name = clean_optional(item.name)?;
+            let template = clean_optional(item.template)?;
+            Some(types::PromptTemplate { name, template })
+        })
+        .collect()
+}
+
 fn clean_subagents(values: Vec<String>) -> Vec<String> {
     let mut output = Vec::new();
     for value in values.into_iter().filter_map(clean_optional) {
@@ -756,6 +768,7 @@ fn profile_options_from(app: &AppConfig) -> Vec<ProfileOption> {
             subagents_config: profile.subagents_config.unwrap_or_default(),
             mcp_enabled: profile.mcp_enabled.unwrap_or(false),
             mcp_config: profile.mcp_config.unwrap_or_default(),
+            prompt_templates: profile.prompt_templates.unwrap_or_default(),
         })
         .collect::<Vec<_>>();
     entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -790,6 +803,7 @@ fn normalized_profiles(app: &AppConfig) -> HashMap<String, ProfileConfig> {
         subagents_config: None,
         mcp_enabled: None,
         mcp_config: None,
+        prompt_templates: None,
     });
     profiles
 }

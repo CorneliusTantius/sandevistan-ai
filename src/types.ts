@@ -21,6 +21,7 @@ export type ExtensionInfo = { id: string; name: string; enabled: boolean; remova
 export type ExtensionsInfo = { config_path: string; extensions: ExtensionInfo[] };
 export type McpServer = { name: string; command: string; args: string[]; timeout_ms: number; env: Record<string, string> };
 export type McpServerDraft = { name: string; original_name: string; command: string; args: string; timeout_ms: number; env: string };
+export type PromptTemplate = { name: string; template: string };
 export type AiMods = {
   main_model: string;
   main_agent: string;
@@ -37,6 +38,7 @@ export type AiMods = {
   subagents_config: string;
   mcp_enabled: boolean;
   mcp_config: string;
+  prompt_templates: PromptTemplate[];
 };
 export type ProfileOption = AiMods & { name: string };
 export type AiConfig = {

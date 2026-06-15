@@ -4,6 +4,8 @@
   import { bindElement } from "../lib/bindElement";
   import type { FileEntry, Message, MessageGroup } from "../types";
 
+  type PromptShortcut = { name: string; template: string };
+
   export let messagesEl: HTMLDivElement;
   export let setMessagesEl: (element: HTMLDivElement) => void = () => {};
   export let hiddenMessageGroupCount = 0;
@@ -24,6 +26,9 @@
   export let mentionResults: FileEntry[] = [];
   export let mentionIndex = 0;
   export let insertMention: (entry: FileEntry) => void = () => {};
+  export let shortcutResults: PromptShortcut[] = [];
+  export let shortcutIndex = 0;
+  export let insertShortcut: (entry: PromptShortcut) => void = () => {};
   export let prompt = "";
   export let rememberPromptSnapshot: (event: Event) => void = () => {};
   export let inputPrompt: (event: Event) => void = () => {};
@@ -80,7 +85,15 @@
     <div class="running-status" role="status" aria-live="polite"><span class="run-dot" aria-hidden="true"></span>{compacting ? "compacting..." : "running..."}</div>
   {/if}
   <form class="prompt-form" on:submit|preventDefault={sendPrompt}>
-    {#if mentionResults.length}
+    {#if shortcutResults.length}
+      <div class="mention-menu">
+        {#each shortcutResults as entry, index (entry.name)}
+          <button class:active={index === shortcutIndex} type="button" on:mousedown|preventDefault={() => insertShortcut(entry)}>
+            <span>!{entry.name}</span>
+          </button>
+        {/each}
+      </div>
+    {:else if mentionResults.length}
       <div class="mention-menu">
         {#each mentionResults as entry, index (entry.path)}
           <button class:active={index === mentionIndex} type="button" on:mousedown|preventDefault={() => insertMention(entry)}>
