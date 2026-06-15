@@ -272,11 +272,16 @@
     ],
   }));
 
+  function profileMods(value: AiConfig, profileName = value.active_profile || "default") {
+    const profile = value.profiles.find((item) => item.name === profileName);
+    return normalizeMods({ ...profile, ...value.mods, prompt_templates: profile?.prompt_templates ?? value.mods.prompt_templates });
+  }
+
   function setConfigDraft(value: AiConfig) {
     providerChoice = value.provider;
     draft = { provider: value.provider, model: value.model, original_model: value.model, context_chars: value.context_chars || 80000 };
-    modsDraft = { ...value.mods };
     modsProfile = value.active_profile || "default";
+    modsDraft = profileMods(value, modsProfile);
     applyUiScale(value.ui_scale || 1);
   }
 
@@ -612,7 +617,7 @@
     if (!token) return closeShortcut();
     shortcutStart = token.start;
     shortcutIndex = 0;
-    shortcutResults = modsDraft.prompt_templates
+    shortcutResults = promptTemplates()
       .filter((item) => item.name.toLowerCase().startsWith(token.query))
       .slice(0, 8);
   }
@@ -782,7 +787,7 @@
       original_model: model.name,
       context_chars: model.context_chars || 80000,
     };
-    const nextMods = normalizeMods({ ...config.mods, main_model: model.name });
+    const nextMods = normalizeMods({ ...profileMods(config, config.active_profile || modsProfile), main_model: model.name });
     config = await invoke<AiConfig>("ai_set_mods", { update: { profile: config.active_profile || modsProfile, ...nextMods } });
     setConfigDraft(config);
     modelLabel = `${config.active_profile} · ${config.model_id}`;
@@ -834,7 +839,7 @@
     void loadExtensionsInfo();
   }
 
-  function normalizeMods(value: AiMods): AiMods {
+  function normalizeMods(value: Partial<AiMods>): AiMods {
     return {
       ...defaultMods(),
       ...value,
@@ -847,8 +852,12 @@
       subagent_max_concurrency: Math.min(5, Math.max(1, Number(value.subagent_max_concurrency) || 3)),
       mcp_enabled: value.mcp_enabled ?? false,
       mcp_config: value.mcp_config || "",
-      prompt_templates: Array.isArray(value.prompt_templates) ? value.prompt_templates : [],
+      prompt_templates: Array.isArray(value.prompt_templates) ? value.prompt_templates.filter((item) => item?.name && item?.template) : [],
     };
+  }
+
+  function promptTemplates() {
+    return Array.isArray(modsDraft.prompt_templates) ? modsDraft.prompt_templates : [];
   }
 
   function defaultMods(): AiMods {
@@ -1045,10 +1054,19 @@
     }
   }
 
+  function modsWithPendingTemplate() {
+    const name = cleanTemplateName(promptTemplateDraft.name);
+    const template = promptTemplateDraft.template.trim();
+    if (!name || !template) return normalizeMods(modsDraft);
+    const current = promptTemplates().filter((item) => item.name !== name);
+    promptTemplateDraft = { name: "", template: "" };
+    return normalizeMods({ ...modsDraft, prompt_templates: [...current, { name, template }] });
+  }
+
   async function saveMods() {
     busy = true;
     try {
-      config = await invoke<AiConfig>("ai_set_mods", { update: { profile: modsProfile, ...normalizeMods(modsDraft) } });
+      config = await invoke<AiConfig>("ai_set_mods", { update: { profile: modsProfile, ...modsWithPendingTemplate() } });
       setConfigDraft(config);
       modelLabel = `${config.active_profile} · ${config.model_id}`;
       showMods = false;
@@ -1500,7 +1518,7 @@
   }
 
   function expandPromptShortcuts(input: string) {
-    const shortcuts = new Map(modsDraft.prompt_templates.map((item) => [item.name.toLowerCase(), item]));
+    const shortcuts = new Map(promptTemplates().map((item) => [item.name.toLowerCase(), item]));
     const used: PromptShortcut[] = [];
     const body = input.replace(/(^|\s)!([\w.-]+)(?=\s|$)/g, (match, prefix: string, name: string) => {
       const item = shortcuts.get(name.toLowerCase());
