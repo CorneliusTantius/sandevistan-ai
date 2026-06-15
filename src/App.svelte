@@ -1519,16 +1519,14 @@
 
   function expandPromptShortcuts(input: string) {
     const shortcuts = new Map(promptTemplates().map((item) => [item.name.toLowerCase(), item]));
-    const used: PromptShortcut[] = [];
+    let expanded = false;
     const body = input.replace(/(^|\s)!([\w.-]+)(?=\s|$)/g, (match, prefix: string, name: string) => {
       const item = shortcuts.get(name.toLowerCase());
       if (!item) return match;
-      used.push(item);
-      return prefix;
+      expanded = true;
+      return `${prefix}${item.template}`;
     }).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-    if (!used.length) return input;
-    const injection = used.map((item) => `!${item.name}\n${item.template}`).join("\n\n");
-    return `${body ? `${body}\n\n` : ""}Shortcut prompt templates:\n${injection}`;
+    return expanded ? body : input;
   }
 
   async function sendPrompt() {
