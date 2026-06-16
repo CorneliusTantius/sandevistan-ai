@@ -25,16 +25,16 @@
   }
 </script>
 
-<div class="file-tree">
+<div class="file-tree" style={`--row-count:${entries.length}`}>
+  {#if entries.length === 0}
+    <div class="empty">No files loaded</div>
+  {/if}
   {#each entries as entry (entry.path)}
     <button class:open={isExpanded(entry)} class:dir={entry.kind === "dir"} class="file-row" type="button" style={`--depth:${entry.depth}`} aria-expanded={entry.kind === "dir" ? isExpanded(entry) : undefined} on:click={() => select(entry)}>
       <span class="kind">{entry.kind === "dir" ? (isExpanded(entry) ? "▣" : "□") : "·"}</span>
       <span class="name">{entry.name}</span>
     </button>
   {/each}
-  {#if entries.length === 0}
-    <div class="empty">empty</div>
-  {/if}
 </div>
 
 <style>
@@ -42,6 +42,8 @@
     display: grid;
     align-content: start;
     gap: 1px;
+    content-visibility: auto;
+    contain-intrinsic-size: auto calc(max(var(--row-count), 12) * 28px);
   }
 
   .file-row {
@@ -85,7 +87,13 @@
   }
 
   .empty {
+    min-height: 56px;
+    display: grid;
+    place-items: center;
     color: var(--muted);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--surface) 45%, transparent);
     font-size: 12px;
   }
 </style>

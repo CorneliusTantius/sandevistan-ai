@@ -16,11 +16,11 @@
     | { kind: "hr" }
     | { kind: "text"; text: string };
 
-  $: renderedContent = renderedOnly(content);
+  $: renderedContent = role === "assistant" && streaming ? content : renderedOnly(content);
   $: renderedLines = renderedContent.split("\n");
-  $: isLong = role === "assistant" && !streaming && renderedLines.length > LINE_LIMIT;
+  $: isLong = (role === "assistant" || role === "user") && !streaming && renderedLines.length > LINE_LIMIT;
   $: visibleContent = isLong && !expanded ? renderedLines.slice(0, LINE_LIMIT).join("\n") : renderedContent;
-  $: blocks = parseMarkdown(visibleContent);
+  $: blocks = role === "assistant" && streaming ? [{ kind: "text", text: visibleContent } as Block] : parseMarkdown(visibleContent);
   $: toolTitle = content.split("\n", 1)[0] || "tool";
   $: toolBody = content.split("\n").slice(1).join("\n").trim();
   $: toolStatus = [...content.matchAll(/^status:\s*([^\n]+)/gm)].at(-1)?.[1]?.trim().toLowerCase() ?? "";

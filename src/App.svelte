@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { api } from "./lib/api";
   import { defaultAgentDraft, defaultExtensionDraft, defaultExtensionsInfo, defaultMcpDraft, defaultModelDraft, baseMods, defaultProviderDraft, defaultSubagentDraft, emptyConfig } from "./lib/defaults";
@@ -368,10 +368,10 @@
 
   function scheduleStreamFlush() {
     if (streamFrame) return;
-    streamFrame = requestAnimationFrame(() => {
+    streamFrame = window.setTimeout(() => {
       streamFrame = 0;
       flushStreamBuffer();
-    });
+    }, 32);
   }
 
   function flushStreamBuffer() {
@@ -391,7 +391,7 @@
 
   function flushStreamNow() {
     if (streamFrame) {
-      cancelAnimationFrame(streamFrame);
+      window.clearTimeout(streamFrame);
       streamFrame = 0;
     }
     flushStreamBuffer();
@@ -692,10 +692,6 @@
     return true;
   }
 
-  async function scrollChatToBottom() {
-    await tick();
-    if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
-  }
 
   function showEarlierMessages() {
     messageGroupLimit += 80;
@@ -1104,7 +1100,7 @@
 
   function resetStreamState() {
     if (streamFrame) {
-      cancelAnimationFrame(streamFrame);
+      window.clearTimeout(streamFrame);
       streamFrame = 0;
     }
     streamBuffer = "";
@@ -1697,9 +1693,6 @@
     void setUiScale(uiScale + delta);
   }
 
-  $: if (messages.length) void scrollChatToBottom();
-  $: if (activeTab === "chat" && chatOpen) void scrollChatToBottom();
-
   onMount(() => {
     let unlistenChat: UnlistenFn | undefined;
     let unlistenFiles: UnlistenFn | undefined;
@@ -1727,7 +1720,7 @@
     }, 1000);
     return () => {
       window.clearInterval(poll);
-      if (streamFrame) cancelAnimationFrame(streamFrame);
+      if (streamFrame) window.clearTimeout(streamFrame);
       if (fileChangeTimer) window.clearTimeout(fileChangeTimer);
       if (fileSearchTimer) window.clearTimeout(fileSearchTimer);
       window.removeEventListener("keydown", globalKeydown);
@@ -1857,6 +1850,7 @@
           sendPrompt={() => void sendPrompt()}
           {busy}
           {messages}
+          sessionKey={activeSessionId}
           compactSession={() => void compactSession()}
           cancelPrompt={() => void cancelPrompt()}
         />

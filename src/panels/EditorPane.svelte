@@ -45,6 +45,7 @@
   let syncedContent = "";
   let lastPropContent = "";
   let mergeOpening = false;
+  let saveFrame = 0;
 
   $: syntaxEnabled = currentContent.length <= SYNTAX_LIMIT;
   $: largeFile = currentContent.length > LARGE_FILE_LIMIT;
@@ -65,6 +66,7 @@
   });
 
   onDestroy(() => {
+    if (saveFrame) cancelAnimationFrame(saveFrame);
     flushContent();
     closeMergeView(false);
     view?.destroy();
@@ -105,6 +107,7 @@
         if (mergeView?.a === update.view) return;
         currentContent = update.state.doc.toString();
         updateDirty();
+        scheduleContentSync();
       }),
       editorTheme,
       extra,
@@ -261,7 +264,19 @@
     onDirtyChange(dirty);
   }
 
+  function scheduleContentSync() {
+    if (saveFrame) return;
+    saveFrame = requestAnimationFrame(() => {
+      saveFrame = 0;
+      flushContent();
+    });
+  }
+
   function flushContent() {
+    if (saveFrame) {
+      cancelAnimationFrame(saveFrame);
+      saveFrame = 0;
+    }
     const doc = currentDoc();
     currentContent = doc;
     updateDirty();

@@ -10,6 +10,7 @@
   let inputDisposable: { dispose: () => void } | undefined;
   let unlisten: UnlistenFn | undefined;
   let resizeObserver: ResizeObserver | undefined;
+  let resizeTimer = 0;
   let terminalStarted = false;
   let destroyed = false;
 
@@ -84,10 +85,14 @@
   }
 
   function resizeTerminal() {
-    if (!term || !host || !terminalStarted) return;
-    const { cols, rows } = terminalSize();
-    term.resize(cols, rows);
-    void invoke("terminal_resize", { request: { id, cols, rows } });
+    if (!term || !host || !terminalStarted || resizeTimer) return;
+    resizeTimer = requestAnimationFrame(() => {
+      resizeTimer = 0;
+      if (!term || !host || !terminalStarted) return;
+      const { cols, rows } = terminalSize();
+      term.resize(cols, rows);
+      void invoke("terminal_resize", { request: { id, cols, rows } });
+    });
   }
 
   onDestroy(() => {
@@ -96,6 +101,8 @@
     inputDisposable?.dispose();
     inputDisposable = undefined;
     resizeObserver?.disconnect();
+    if (resizeTimer) cancelAnimationFrame(resizeTimer);
+    resizeTimer = 0;
     resizeObserver = undefined;
     if (unlisten) unlisten();
     unlisten = undefined;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import MessageView from "../components/chat/MessageView.svelte";
   import ToolGroup from "../components/chat/ToolGroup.svelte";
   import { bindElement } from "../lib/bindElement";
@@ -38,17 +39,66 @@
   export let messages: Message[] = [];
   export let compactSession: () => void = () => {};
   export let cancelPrompt: () => void = () => {};
+  export let sessionKey = "";
 
   let showJumpLatest = false;
+  let wasNearBottom = true;
+  let lastGroupCount = -1;
+  let lastSessionKey = "";
+  let pendingOpenScroll = false;
+  let scrollToken = 0;
+  let latestEl: HTMLDivElement;
+
+  function isNearBottom() {
+    if (!messagesEl) return true;
+    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 180;
+  }
+
+  $: if (messagesEl && sessionKey !== lastSessionKey) {
+    lastSessionKey = sessionKey;
+    lastGroupCount = visibleMessageGroups.length;
+    wasNearBottom = true;
+    showJumpLatest = false;
+    pendingOpenScroll = true;
+    void scrollLatestSoon(true, 12);
+  }
+
+  $: if (messagesEl && visibleMessageGroups.length !== lastGroupCount) {
+    const shouldPin = pendingOpenScroll || (wasNearBottom && activeSessionRunning);
+    lastGroupCount = visibleMessageGroups.length;
+    if (shouldPin) void scrollLatestSoon(pendingOpenScroll, pendingOpenScroll ? 12 : 1);
+  }
+
+  function forceScrollLatest() {
+    if (!messagesEl) return;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    latestEl?.scrollIntoView({ block: "end" });
+  }
+
+  async function scrollLatestSoon(force = false, frames = 1) {
+    const token = ++scrollToken;
+    await tick();
+    const scroll = (remaining: number) => {
+      requestAnimationFrame(() => {
+        if (token !== scrollToken || !messagesEl || (!force && !wasNearBottom)) return;
+        forceScrollLatest();
+        updateScrollState();
+        if (remaining > 1) scroll(remaining - 1);
+        else if (force) pendingOpenScroll = false;
+      });
+    };
+    scroll(frames);
+  }
 
   function updateScrollState() {
     if (!messagesEl) return;
-    showJumpLatest = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight > 160;
+    wasNearBottom = isNearBottom();
+    showJumpLatest = !wasNearBottom;
   }
 
   async function jumpLatest() {
     if (!messagesEl) return;
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    forceScrollLatest();
     updateScrollState();
   }
 </script>
@@ -57,6 +107,12 @@
   <div class="chat-main">
     <div class="messages-wrap">
       <div class="messages" bind:this={messagesEl} use:bindElement={setMessagesEl} on:scroll={updateScrollState}>
+        {#if visibleMessageGroups.length === 0}
+          <div class="chat-empty">
+            <strong>Start coding with Sandevistan</strong>
+            <span>Ask for a fix, open a file, or mention @file for context.</span>
+          </div>
+        {/if}
         {#if hiddenMessageGroupCount > 0}
           <button class="ghost show-earlier" type="button" on:click={showEarlierMessages}>show {Math.min(80, hiddenMessageGroupCount)} earlier ({hiddenMessageGroupCount} hidden)</button>
         {/if}
@@ -67,6 +123,7 @@
             <ToolGroup tools={group.tools} />
           {/if}
         {/each}
+        <div class="latest-anchor" bind:this={latestEl} aria-hidden="true"></div>
       </div>
       {#if showJumpLatest}
         <button class="ghost jump-latest" type="button" on:click={jumpLatest}>jump to latest</button>
