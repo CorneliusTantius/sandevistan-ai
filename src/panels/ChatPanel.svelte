@@ -44,6 +44,7 @@
   let showJumpLatest = false;
   let wasNearBottom = true;
   let lastGroupCount = -1;
+  let lastTailSignature = "";
   let lastSessionKey = "";
   let pendingOpenScroll = false;
   let scrollToken = 0;
@@ -54,19 +55,24 @@
     return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 180;
   }
 
+  $: tailSignature = visibleMessageGroups.at(-1)?.key ?? "";
+
   $: if (messagesEl && sessionKey !== lastSessionKey) {
     lastSessionKey = sessionKey;
     lastGroupCount = visibleMessageGroups.length;
+    lastTailSignature = tailSignature;
     wasNearBottom = true;
     showJumpLatest = false;
     pendingOpenScroll = true;
     void scrollLatestSoon(true, 12);
   }
 
-  $: if (messagesEl && visibleMessageGroups.length !== lastGroupCount) {
-    const shouldPin = pendingOpenScroll || (wasNearBottom && activeSessionRunning);
+  $: if (messagesEl && (visibleMessageGroups.length !== lastGroupCount || tailSignature !== lastTailSignature)) {
+    const grew = visibleMessageGroups.length > lastGroupCount || tailSignature !== lastTailSignature;
+    const shouldPin = pendingOpenScroll || (grew && wasNearBottom);
     lastGroupCount = visibleMessageGroups.length;
-    if (shouldPin) void scrollLatestSoon(pendingOpenScroll, pendingOpenScroll ? 12 : 1);
+    lastTailSignature = tailSignature;
+    if (shouldPin) void scrollLatestSoon(pendingOpenScroll, pendingOpenScroll ? 12 : 2);
   }
 
   function forceScrollLatest() {
