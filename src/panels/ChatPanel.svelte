@@ -56,28 +56,34 @@
 <section class="chat" aria-label="AI chat">
   <div class="chat-main">
     <div class="messages-wrap">
-    <div class="messages" bind:this={messagesEl} use:bindElement={setMessagesEl} on:scroll={updateScrollState}>
-      {#if hiddenMessageGroupCount > 0}
-        <button class="ghost show-earlier" type="button" on:click={showEarlierMessages}>show {Math.min(80, hiddenMessageGroupCount)} earlier ({hiddenMessageGroupCount} hidden)</button>
-      {/if}
-      {#each visibleMessageGroups as group (group.key)}
-        {#if group.kind === "message"}
-          <MessageView role={group.message.role} content={group.message.content} streaming={isStreamingMessage(group)} />
-        {:else}
-          <ToolGroup tools={group.tools} />
+      <div class="messages" bind:this={messagesEl} use:bindElement={setMessagesEl} on:scroll={updateScrollState}>
+        {#if hiddenMessageGroupCount > 0}
+          <button class="ghost show-earlier" type="button" on:click={showEarlierMessages}>show {Math.min(80, hiddenMessageGroupCount)} earlier ({hiddenMessageGroupCount} hidden)</button>
         {/if}
-      {/each}
-    </div>
-    {#if showJumpLatest}
-      <button class="ghost jump-latest" type="button" on:click={jumpLatest}>jump to latest</button>
-    {/if}
+        {#each visibleMessageGroups as group (group.key)}
+          {#if group.kind === "message"}
+            <MessageView role={group.message.role} content={group.message.content} streaming={isStreamingMessage(group)} />
+          {:else}
+            <ToolGroup tools={group.tools} />
+          {/if}
+        {/each}
+      </div>
+      {#if showJumpLatest}
+        <button class="ghost jump-latest" type="button" on:click={jumpLatest}>jump to latest</button>
+      {/if}
     </div>
     <aside class="stats-card" aria-label="Chat stats">
-      <div class="side-title">stats</div>
-      <div class="stat-row"><span>context</span><strong>{formatContext(contextUsed)} / {formatContext(contextLimit)}</strong></div>
+      <div class="stats-head">
+        <span>session</span>
+        <strong>{contextPercent}%</strong>
+      </div>
       <div class="context-bar"><span style={`width:${contextPercent}%`}></span></div>
-      <small>{contextPercent}% used · transcript {formatContext(transcriptUsed)}</small>
-      <div class="stat-row"><span>in / out tokens</span><strong>{formatContext(inputTokens)} | {formatContext(outputTokens)}</strong></div>
+      <div class="stat-list">
+        <div class="stat-row"><span>context</span><strong>{formatContext(contextUsed)} / {formatContext(contextLimit)}</strong></div>
+        <div class="stat-row"><span>transcript</span><strong>{formatContext(transcriptUsed)}</strong></div>
+        <div class="stat-row"><span>tokens in</span><strong>{formatContext(inputTokens)}</strong></div>
+        <div class="stat-row"><span>tokens out</span><strong>{formatContext(outputTokens)}</strong></div>
+      </div>
     </aside>
   </div>
 

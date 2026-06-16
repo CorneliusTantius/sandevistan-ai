@@ -224,33 +224,34 @@
 
 <style>
   .message {
-    width: 90%;
-    max-width: 90%;
-    justify-self: start;
+    width: 100%;
+    max-width: 100%;
+    justify-self: stretch;
     min-width: 0;
     display: grid;
-    gap: 6px;
+    gap: 0;
     padding: 0;
-    border: 1px solid var(--border);
+    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     border-radius: var(--radius);
-    background: transparent;
+    background: color-mix(in srgb, var(--panel) 62%, transparent);
+    box-shadow: 0 1px 0 rgb(0 0 0 / 0.18);
   }
 
   .message-head {
-    min-height: 24px;
+    min-height: 22px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 7px 10px;
-    border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-    background: color-mix(in srgb, var(--surface) 72%, var(--black));
+    padding: 6px 10px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+    background: color-mix(in srgb, var(--surface) 44%, transparent);
     border-radius: var(--radius) var(--radius) 0 0;
   }
 
   .message-body {
     min-width: 0;
-    padding: 10px 12px 12px;
+    padding: 10px 12px;
   }
 
   .message.collapsible {
@@ -277,29 +278,30 @@
   }
 
   .assistant {
-    justify-self: end;
-    border-color: color-mix(in srgb, var(--assistant) 55%, var(--border));
+    justify-self: stretch;
+    border-color: color-mix(in srgb, var(--assistant) 28%, var(--border));
   }
 
   .assistant .message-head {
-    background: color-mix(in srgb, var(--bg) 88%, var(--assistant));
+    background: color-mix(in srgb, var(--surface) 56%, var(--assistant) 8%);
   }
 
   .assistant span {
-    color: var(--assistant);
+    color: color-mix(in srgb, var(--assistant) 82%, var(--muted));
   }
 
   .user {
-    justify-self: start;
-    border-color: color-mix(in srgb, var(--alt) 60%, var(--border));
+    justify-self: stretch;
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    background: color-mix(in srgb, var(--surface) 70%, var(--accent) 5%);
   }
 
   .user .message-head {
-    background: color-mix(in srgb, var(--surface) 90%, var(--alt));
+    background: color-mix(in srgb, var(--surface) 64%, var(--accent) 8%);
   }
 
   .user span {
-    color: var(--alt);
+    color: color-mix(in srgb, var(--accent) 82%, var(--muted));
   }
 
   .tool {

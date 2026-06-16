@@ -69,36 +69,54 @@
 
 <style>
   .tool-group {
-    width: 90%;
-    max-width: 90%;
-    justify-self: end;
+    width: 100%;
+    max-width: 100%;
+    justify-self: stretch;
     min-width: 0;
-    padding: 6px 0;
+    padding: 2px 0;
   }
 
   .group-toggle,
   .tool-toggle {
     width: 100%;
+    min-height: 28px;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     justify-content: start;
     color: var(--muted);
-    border: 1px solid var(--border);
-    background: none;
+    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    background: color-mix(in srgb, var(--surface-soft) 88%, var(--black));
     text-align: left;
     cursor: pointer;
     font-size: 12px;
+    font-weight: 500;
+  }
+
+  .group-toggle:hover,
+  .group-toggle:focus-visible,
+  .tool-toggle:hover,
+  .tool-toggle:focus-visible {
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--border) 90%, var(--accent));
+    background: var(--surface);
+    outline: none;
   }
 
   .summary {
-    font-size: 10px;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .status-dot {
-    width: 6px;
-    height: 6px;
+    width: 7px;
+    height: 7px;
     flex: 0 0 auto;
+    border-radius: 999px;
     background: var(--accent);
   }
 
@@ -116,27 +134,30 @@
 
   .tool-list {
     display: grid;
-    gap: 8px;
-    margin-top: 8px;
-    margin-left: 18px;
-    padding-left: 12px;
-    border-left: 1px solid var(--border);
+    gap: 6px;
+    margin-top: 6px;
+    margin-left: 10px;
+    padding-left: 10px;
+    border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   }
 
   .tool-item {
     display: grid;
-    gap: 6px;
-    padding-left: 4px;
+    gap: 5px;
+    min-width: 0;
   }
 
   pre {
     margin: 0;
     overflow: auto;
-    max-height: 320px;
-    padding: 8px;
-    border: 1px solid var(--panel);
-    background: color-mix(in srgb, var(--black) 92%, var(--panel));
+    max-height: 300px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+    border-radius: var(--radius-sm);
+    background: var(--black);
     color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
     white-space: pre;
   }
 </style>

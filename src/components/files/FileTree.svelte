@@ -75,7 +75,7 @@
 
   .file-row.dir .name {
     color: var(--text);
-    font-weight: 700;
+    font-weight: 650;
   }
 
   .name {

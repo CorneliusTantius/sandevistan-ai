@@ -47,9 +47,9 @@
     width: max-content;
     min-width: max-content;
     white-space: nowrap;
-    color: var(--text);
-    border: 1px solid var(--panel);
-    background: var(--surface);
+    color: var(--muted);
+    border: 1px solid transparent;
+    background: transparent;
     text-align: left;
     cursor: pointer;
   }
@@ -62,9 +62,10 @@
     right: auto;
     min-width: 100%;
     display: grid;
-    border: 1px solid var(--panel);
-    border-top: 0;
-    background: var(--bg);
+    padding: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: 0 12px 30px rgb(0 0 0 / 0.28);
   }
 
   .selectbox.fit,
@@ -79,14 +80,17 @@
 
   .menu button {
     justify-content: start;
-    color: var(--text);
+    color: var(--muted);
     border: 0;
-    background: var(--bg);
+    background: transparent;
     text-align: left;
     cursor: pointer;
   }
 
-  .menu button.active {
-    background: var(--surface);
+  .menu button.active,
+  .menu button:hover,
+  .menu button:focus-visible {
+    color: var(--text);
+    background: var(--surface-soft);
   }
 </style>
